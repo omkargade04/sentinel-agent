@@ -14,8 +14,8 @@ Sentinel is an AI powered Code Reviewer Agent that tracks PR, reviews them and d
 
 ### 1️⃣ Clone the Repository
 ```sh
-git clone git@github.com:omkargade04/Sentinel.git
-cd sentinel
+git clone git@github.com:omkargade04/sentinel-server.git
+cd sentinel-server
 ```
 
 ### 2️⃣ Install Dependencies
