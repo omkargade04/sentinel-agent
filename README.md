@@ -1,7 +1,7 @@
 ## Sentinel: The bug slayer
 "No Bugs will be tolerated"
 
-![altext](https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExc2JsbGdiaWU1eHN6dHdsaHNzcmZ1cGd2anhlOXg1Y2txM3p1cHN6ZiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/bHSkKRvkRvy5chUBBp/giphy.gif)
+![altext](https://external-preview.redd.it/SHNtughQ3UZw2b-Gekke89Ifwh4M4d9msKM8ysuiYAk.gif?auto=webp&s=329dfb4f1d6dffb0b0c51dccae318f8ee753ac0f)
 
 ## 📌 Overview
 Sentinel is an AI powered Code Reviewer Agent that tracks PR, reviews them and detects potential bugs
@@ -15,7 +15,7 @@ Sentinel is an AI powered Code Reviewer Agent that tracks PR, reviews them and d
 ### 1️⃣ Clone the Repository
 ```sh
 git clone git@github.com:omkargade04/Sentinel.git
-cd Sentinel
+cd sentinel
 ```
 
 ### 2️⃣ Install Dependencies
