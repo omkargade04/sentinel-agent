@@ -1,22 +1,15 @@
 from fastapi import FastAPI
+from .routes import register_routes
 
 
 class FastAPIApp:
     def __init__(self):
         self.app = FastAPI()
-        self.__register_health_check()
-        self.__register_ping()
+        self.__register_routes()
 
     def get_app(self):
         return self.app
     
-    def __register_health_check(self):
-        @self.app.get("/health")
-        def health_check():
-            return {"status": "ok"}
-    
-    def __register_ping(self):
-        @self.app.get("/ping")
-        def ping():
-            return {"status": "pong"}
+    def __register_routes(self):
+        register_routes(self.app)
         
