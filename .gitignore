@@ -1,2 +1,5 @@
 .env
 .cursor
+__pycache__/
+*/__pycache__/
+**/__pycache__/
