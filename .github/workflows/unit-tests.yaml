@@ -458,6 +458,19 @@ jobs:
                           echo "  ✓ Found tests/ dir tests: $test_files"
                           ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
                         fi
+                        
+                        # Also try to find any test file that might test this module
+                        # For health.py, look for test_health.py in the same relative path
+                        relative_path="${file#src/}"
+                        test_relative_path="tests/${relative_path}"
+                        test_dir=$(dirname "$test_relative_path")
+                        if [ -d "$test_dir" ]; then
+                          test_files=$(find "$test_dir" -name "test_*.py" 2>/dev/null | head -20)
+                          if [ -n "$test_files" ]; then
+                            echo "  ✓ Found tests in directory: $test_files"
+                            ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                          fi
+                        fi
                       fi
                       
                       # Strategy 3: Look for any test files that might test this module
@@ -465,6 +478,17 @@ jobs:
                       if [ -n "$test_files" ]; then
                         echo "  ✓ Found related tests: $test_files"
                         ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                      fi
+                      
+                      # Strategy 4: If no specific tests found, run all tests in the tests/ directory
+                      # This ensures we don't miss any tests due to naming mismatches
+                      if [ -z "$ACTUAL_TEST_FILES" ] || [ "$ACTUAL_TEST_FILES" = "" ]; then
+                        echo "  🔍 No specific tests found, will run all tests in tests/ directory"
+                        ALL_TEST_FILES=$(find tests/ -name "test_*.py" 2>/dev/null | head -50)
+                        if [ -n "$ALL_TEST_FILES" ]; then
+                          echo "  ✓ Found all test files: $ALL_TEST_FILES"
+                          ACTUAL_TEST_FILES="$ALL_TEST_FILES"
+                        fi
                       fi
                     fi
                   done <<< "$RELEVANT_FILES"
@@ -476,33 +500,46 @@ jobs:
                   echo "Coverage include pattern: $COVERAGE_INCLUDE"
                   echo "Actual test files found: $ACTUAL_TEST_FILES"
                   echo "Number of test files found: $(echo "$ACTUAL_TEST_FILES" | wc -w)"
+                  
+                  # Debug: List all test files in the repository
+                  echo "🔍 All test files in repository:"
+                  find tests/ -name "test_*.py" 2>/dev/null || echo "No test files found in tests/"
+                  echo "🔍 All Python files in tests/:"
+                  find tests/ -name "*.py" 2>/dev/null || echo "No Python files found in tests/"
                   # Run tests with coverage only for changed files and related tests
                   echo "🔧 Running coverage command for changed files and their tests..."
-                  if [ -n "$ACTUAL_TEST_FILES" ]; then
+                  if [ -n "$ACTUAL_TEST_FILES" ] || [ -d "tests" ]; then
                     # Run only specific test files with coverage for changed source files
                     echo "📋 Running specific tests: $ACTUAL_TEST_FILES"
                     echo "🔧 Coverage include pattern: $COVERAGE_INCLUDE"
-                    echo "🚀 Starting Vitest with coverage..."
+                    echo "🚀 Starting pytest with coverage..."
                     
-                    # Create a temporary vitest config for differential coverage
-                    echo "🔄 Creating temporary Vitest config for differential coverage..."
+                    # Run tests with coverage for changed files
                     echo "📋 Coverage includes: $COVERAGE_INCLUDE"
                     echo "📋 Test files: $ACTUAL_TEST_FILES"
-                    
-                    # Try a simpler approach - just use command line args with better debugging
-                    echo "🔧 Running tests with specific coverage for changed files..."
                     echo "📋 Changed files: $RELEVANT_FILES"
-                    echo "📋 Test files: $ACTUAL_TEST_FILES"
                     
                     # Create a simplified command with just the essential coverage options
-                    COVERAGE_CMD="poetry run pytest \
-                      --cov=src \
-                      --cov-report=term \
-                      --cov-report=json:coverage/coverage-summary.json \
-                      --cov-report=html:coverage/html \
-                      --cov-report=xml:coverage/coverage.xml \
-                      --cov-fail-under=80 \
-                      $ACTUAL_TEST_FILES"
+                    if [ -n "$ACTUAL_TEST_FILES" ]; then
+                      COVERAGE_CMD="poetry run pytest \
+                        --cov=src \
+                        --cov-report=term \
+                        --cov-report=json:coverage/coverage-summary.json \
+                        --cov-report=html:coverage/html \
+                        --cov-report=xml:coverage/coverage.xml \
+                        --cov-fail-under=80 \
+                        $ACTUAL_TEST_FILES"
+                    else
+                      # If no specific tests found, run all tests
+                      COVERAGE_CMD="poetry run pytest \
+                        --cov=src \
+                        --cov-report=term \
+                        --cov-report=json:coverage/coverage-summary.json \
+                        --cov-report=html:coverage/html \
+                        --cov-report=xml:coverage/coverage.xml \
+                        --cov-fail-under=80 \
+                        tests/"
+                    fi
                     
                     echo "🚀 Executing coverage command:"
                     echo "$COVERAGE_CMD"
@@ -668,14 +705,14 @@ jobs:
                         - No tests exist for the changed files
                         - The changed files don't export testable code
                         - There are syntax errors in the changed files
-                        - Vitest configuration issues
+                        - pytest configuration issues
                         
                         **Files attempted to analyze:** ${fileCount}
                         
                         💡 **Next Steps:**
                         1. Check if unit tests exist for your changed files
                         2. Ensure your files export functions/components that can be tested
-                        3. Run tests locally: \`pnpm test --coverage\`
+                        3. Run tests locally: \`poetry run pytest --cov=src\`
                         4. Check the workflow logs for detailed error messages`;
                       } else {
                         try {
