@@ -821,7 +821,8 @@ jobs:
                           const changedFilesList = changedFiles.split('\n').filter(f => f.trim()).slice(0, 10); // Show first 10 files
                           const hasMoreFiles = changedFiles.split('\n').filter(f => f.trim()).length > 10;
                           
-                          coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
+                          coverageComment = `\`\`\`
+                          ## 🧪 Unit Test Coverage Report (Diff Coverage)
                           
                           **Scope:** Changed Files Only (${fileCount} files)
                           
@@ -858,7 +859,8 @@ jobs:
                           - **Purpose:** Informational coverage reporting (no thresholds enforced)
                           - **Shows:** Line, function, branch, and statement coverage metrics
                           - **Excludes:** Test files, \`__pycache__\`, \`.pytest_cache\`
-                          </details>`;
+                          </details>
+                          \`\`\``;
                                                 } catch (error) {
                           console.error('Failed to read coverage file:', error);
                           coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
