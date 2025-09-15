@@ -1,0 +1,924 @@
+name: Unit Test Coverage Check
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled, unlabeled]
+        branches:
+            - main
+            - develop
+
+permissions:
+    id-token: write # Required if using OpenID Connect for authentication
+    contents: read # Required for actions/checkout to access repository contents
+    packages: read # Required if fetching from private npm packages
+    pull-requests: write # Required to comment on PRs
+    checks: write # Required to update coverage check results
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check-skip-conditions:
+        name: Check Skip Conditions
+        runs-on: ubuntu-latest
+        outputs:
+            should_skip: ${{ steps.check.outputs.should_skip }}
+            skip_reason: ${{ steps.check.outputs.skip_reason }}
+        steps:
+            - name: Check if unit test coverage should be skipped
+              id: check
+              run: |
+                  # Debug: Show what triggered this workflow
+                  echo "Workflow triggered by: ${{ github.event_name }}"
+                  echo "Action: ${{ github.event.action }}"
+                  # Check for labels
+                  LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+                  HAS_URGENT_BUGFIX=$(echo "$LABELS" | jq -r 'any(. == "urgent_bugfix")')
+                  HAS_URGENT_HOTFIX=$(echo "$LABELS" | jq -r 'any(. == "urgent_hotfix")')
+                  # Debug: Show labels and results
+                  echo "Labels found: $LABELS"
+                  echo "Has urgent_bugfix: $HAS_URGENT_BUGFIX"
+                  echo "Has urgent_hotfix: $HAS_URGENT_HOTFIX"
+                  # If triggered by label events, check if it's relevant
+                  if [[ "${{ github.event.action }}" == "labeled" || "${{ github.event.action }}" == "unlabeled" ]]; then
+                    CHANGED_LABEL="${{ github.event.label.name }}"
+                    echo "Label changed: $CHANGED_LABEL"
+                    
+                    # Only proceed if the changed label is relevant to our skip conditions
+                    if [[ "$CHANGED_LABEL" != "urgent_bugfix" && "$CHANGED_LABEL" != "urgent_hotfix" ]]; then
+                      echo "Label '$CHANGED_LABEL' is not relevant to unit test coverage workflow"
+                      echo "Proceeding without skipping due to irrelevant label change"
+                      # Do not set should_skip here; continue to evaluate normal skip conditions below
+                    else
+                      echo "Label '$CHANGED_LABEL' is relevant to unit test coverage workflow"
+                      
+                      # If a skip label was just removed, we should run the workflow
+                      if [[ "${{ github.event.action }}" == "unlabeled" && ("$CHANGED_LABEL" == "urgent_bugfix" || "$CHANGED_LABEL" == "urgent_hotfix") ]]; then
+                        echo "Skip label '$CHANGED_LABEL' was removed - will run coverage check"
+                      fi
+                      
+                      # If a skip label was just added, we should skip the workflow  
+                      if [[ "${{ github.event.action }}" == "labeled" && ("$CHANGED_LABEL" == "urgent_bugfix" || "$CHANGED_LABEL" == "urgent_hotfix") ]]; then
+                        echo "Skip label '$CHANGED_LABEL' was added - will skip coverage check"
+                      fi
+                    fi
+                  fi
+                  # Skip if this is a reverse PR (main → staging or staging → develop)
+                  if [[ "${{ github.base_ref }}" == "staging" && "${{ github.head_ref }}" == "main" ]]; then
+                    echo "should_skip=true" >> $GITHUB_OUTPUT
+                    echo "skip_reason=reverse_pr_main_to_staging" >> $GITHUB_OUTPUT
+                    echo "Skipping workflow: reverse PR from main to staging"
+                  elif [[ "${{ github.base_ref }}" == "develop" && "${{ github.head_ref }}" == "staging" ]]; then
+                    echo "should_skip=true" >> $GITHUB_OUTPUT
+                    echo "skip_reason=reverse_pr_staging_to_develop" >> $GITHUB_OUTPUT
+                    echo "Skipping workflow: reverse PR from staging to develop"
+                  elif [[ "$HAS_URGENT_BUGFIX" == "true" ]]; then
+                    echo "should_skip=true" >> $GITHUB_OUTPUT
+                    echo "skip_reason=urgent_bugfix_label" >> $GITHUB_OUTPUT
+                    echo "Skipping workflow: urgent_bugfix label detected"
+                  elif [[ "$HAS_URGENT_HOTFIX" == "true" ]]; then
+                    echo "should_skip=true" >> $GITHUB_OUTPUT
+                    echo "skip_reason=urgent_hotfix_label" >> $GITHUB_OUTPUT
+                    echo "Skipping workflow: urgent_hotfix label detected"
+                  else
+                    echo "should_skip=false" >> $GITHUB_OUTPUT
+                    echo "skip_reason=none" >> $GITHUB_OUTPUT
+                    echo "Proceeding with workflow: no skip conditions met"
+                  fi
+    # Job that passes when unit test coverage should be skipped
+    unit-coverage-skip-pass:
+        name: Pass for Skipped Unit Coverage
+        runs-on: ubuntu-latest
+        needs: [check-skip-conditions]
+        if: ${{ needs.check-skip-conditions.outputs.should_skip == 'true' }}
+        steps:
+            - name: Pass for skipped unit test coverage
+              run: |
+                  SKIP_REASON="${{ needs.check-skip-conditions.outputs.skip_reason }}"
+                  case "$SKIP_REASON" in
+                    "reverse_pr_main_to_staging")
+                      echo "✅ Reverse PR detected (main → staging) - skipping unit test coverage but marking as passed"
+                      ;;
+                    "reverse_pr_staging_to_develop")
+                      echo "✅ Reverse PR detected (staging → develop) - skipping unit test coverage but marking as passed"
+                      ;;
+                    "urgent_bugfix_label")
+                      echo "✅ Urgent bugfix label detected - skipping unit test coverage but marking as passed"
+                      ;;
+                    "urgent_hotfix_label")
+                      echo "✅ Urgent hotfix label detected - skipping unit test coverage but marking as passed"
+                      ;;
+                    *)
+                      echo "✅ Unit test coverage check skipped - marking as passed"
+                      ;;
+                  esac
+    # Job to comment on PR when unit test coverage is skipped
+    comment-skip-reason:
+        name: Comment Skip Reason
+        runs-on: ubuntu-latest
+        needs: [check-skip-conditions]
+        if: ${{ needs.check-skip-conditions.outputs.should_skip == 'true' }}
+        steps:
+            - name: Comment on PR about skipped unit test coverage
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const skipReason = '${{ needs.check-skip-conditions.outputs.skip_reason }}';
+                      let skipComment = '';
+                      switch(skipReason) {
+                        case 'reverse_pr_main_to_staging':
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** Reverse PR detected (main → staging)
+                          
+                          Unit test coverage checks are automatically skipped for reverse PRs to avoid redundant testing.
+                          
+                          ✅ **Status:** Passed (unit test coverage requirements waived)`;
+                          break;
+                        case 'reverse_pr_staging_to_develop':
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** Reverse PR detected (staging → develop)
+                          
+                          Unit test coverage checks are automatically skipped for reverse PRs to avoid redundant testing.
+                          
+                          ✅ **Status:** Passed (unit test coverage requirements waived)`;
+                          break;
+                        case 'urgent_bugfix_label':
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** \`urgent_bugfix\` label detected 🚨
+                          
+                          Unit test coverage requirements have been waived for this urgent fix.
+                          
+                          **Note:** Please consider adding unit tests in a follow-up PR when time permits.
+                          
+                          ✅ **Status:** Passed (unit test coverage requirements waived for urgent fix)`;
+                          break;
+                        case 'urgent_hotfix_label':
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** \`urgent_hotfix\` label detected 🔥
+                          
+                          Unit test coverage requirements have been waived for this urgent hotfix.
+                          
+                          **Note:** Please consider adding unit tests in a follow-up PR when time permits.
+                          
+                          ✅ **Status:** Passed (unit test coverage requirements waived for urgent hotfix)`;
+                          break;
+                        case 'irrelevant_label_change':
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** Irrelevant label change detected
+                          
+                          This workflow was triggered by a label change that doesn't affect unit test coverage requirements.
+                          
+                          ✅ **Status:** Passed (no coverage check needed for this label change)`;
+                          break;
+                        default:
+                          skipComment = `## ⏭️ Unit Test Coverage Skipped
+                          
+                          **Reason:** Unit test coverage check was skipped
+                          
+                          ✅ **Status:** Passed (unit test coverage requirements waived)`;
+                      }
+                      // Find existing unit test coverage comment
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                      });
+                      const existingComment = comments.find(comment => 
+                        comment.body.includes('🧪 Unit Test Coverage Report') || comment.body.includes('⏭️ Unit Test Coverage Skipped')
+                      );
+                      if (existingComment) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existingComment.id,
+                          body: skipComment
+                        });
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: skipComment
+                        });
+                      }
+
+    # Job that checks for relevant files and determines if we should run coverage
+    check-relevant-files:
+        runs-on: ubuntu-latest
+        needs: [check-skip-conditions]
+        if: ${{ needs.check-skip-conditions.outputs.should_skip != 'true' }}
+        outputs:
+            should_skip_coverage: ${{ steps.check-files.outputs.should_skip_coverage }}
+            file_count: ${{ steps.check-files.outputs.file_count }}
+            changed_files: ${{ steps.check-files.outputs.changed_files }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  fetch-depth: 0
+
+            - name: Check for relevant files
+              id: check-files
+              run: |
+                  echo "🔍 Finding files changed in this PR..."
+                  # Get the base branch and current branch
+                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
+                  HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+                  echo "Base SHA: $BASE_SHA"
+                  echo "Head SHA: $HEAD_SHA"
+
+                  # Get changed files (added, modified, renamed)
+                  echo "🔍 Running git diff command..."
+                  CHANGED_FILES=$(git diff --name-only --diff-filter=AMR "$BASE_SHA" "$HEAD_SHA")
+                  echo "All changed files (count: $(echo "$CHANGED_FILES" | wc -l)):"
+                  echo "$CHANGED_FILES"
+
+                  # Check if we got any files
+                  if [ -z "$CHANGED_FILES" ]; then
+                    echo "⚠️ No files found by git diff! Trying alternative approach..."
+                    # Try with merge-base
+                    MERGE_BASE=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+                    echo "Merge base: $MERGE_BASE"
+                    CHANGED_FILES=$(git diff --name-only --diff-filter=AMR "$MERGE_BASE" "$HEAD_SHA")
+                  fi
+
+                                    # Filter for relevant source files that should have test coverage
+                  echo "🔍 Filtering for relevant files..."
+                  RELEVANT_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(py)$' | grep -v -E '(\.spec\.|\.test\.|/tests/|/__pycache__/|/\.pytest_cache/)' | sort | uniq || true)
+                  echo "Relevant files for coverage:"
+                  if [ -n "$RELEVANT_FILES" ]; then
+                    echo "$RELEVANT_FILES"
+                  else
+                    echo "(none)"
+                  fi
+
+                  # Count files - handle empty case properly
+                  if [ -z "$RELEVANT_FILES" ] || [ "$RELEVANT_FILES" = "" ]; then
+                    FILE_COUNT=0
+                  else
+                    FILE_COUNT=$(echo "$RELEVANT_FILES" | grep -c .)
+                  fi
+                  echo "Number of relevant files: $FILE_COUNT"
+
+                  # Set outputs based on file count
+                  if [ "$FILE_COUNT" -eq 0 ]; then
+                    echo "📝 No relevant source files changed in this PR."
+                    echo "should_skip_coverage=true" >> $GITHUB_OUTPUT
+                    echo "changed_files=" >> $GITHUB_OUTPUT
+                    echo "file_count=0" >> $GITHUB_OUTPUT
+                  else
+                    echo "should_skip_coverage=false" >> $GITHUB_OUTPUT
+                    echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+                    # Use multiline format for non-empty files list
+                    echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+                    echo "$RELEVANT_FILES" >> $GITHUB_OUTPUT
+                    echo "EOF" >> $GITHUB_OUTPUT
+                  fi
+
+    # Job that marks workflow as successful when no relevant files are found
+    unit-coverage-no-files-success:
+        name: ✅ Unit Test Coverage - PASSED (No Relevant Files)
+        runs-on: ubuntu-latest
+        needs: [check-relevant-files]
+        if: ${{ needs.check-relevant-files.outputs.should_skip_coverage == 'true' }}
+        steps:
+            - name: Mark workflow as successful - no relevant files changed
+              run: |
+                  echo "🎉 UNIT TEST COVERAGE CHECK: PASSED ✅"
+                  echo ""
+                  echo "📋 Summary:"
+                  echo "   ✅ No relevant source files were changed in this PR"
+                  echo "   ✅ Coverage requirements automatically satisfied"
+                  echo "   ✅ Workflow marked as SUCCESSFUL"
+                  echo ""
+                  echo "📁 Files that require unit test coverage:"
+                  echo "   • .py files in src/"
+                  echo "   • Excluding: test files, __pycache__, .pytest_cache"
+                  echo ""
+                  echo "🏆 Status: SUCCESS - No coverage analysis needed"
+
+    # Job to comment on PR when no relevant files are found
+    comment-no-relevant-files:
+        name: Comment No Relevant Files
+        runs-on: ubuntu-latest
+        needs: [check-relevant-files]
+        if: ${{ needs.check-relevant-files.outputs.should_skip_coverage == 'true' }}
+        steps:
+            - name: Comment on PR about no relevant files
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const comment = `## 🧪 Unit Test Coverage Report
+
+                      **Status: ✅ PASSED** 
+
+                      **Reason:** No relevant source files were changed in this PR.
+
+                      📋 **Coverage Analysis:**
+                      - **Included:** \`.py\` files in \`src/\`
+                      - **Excluded:** Test files, \`__pycache__\`, \`.pytest_cache\`
+                      - **Purpose:** Informational coverage reporting (no thresholds enforced)
+                      - **Shows:** Line, function, branch, and statement coverage metrics
+
+                      🏆 **Result:** Coverage check automatically passed - no source code changes to analyze.`;
+
+                      // Find existing unit test coverage comment
+                      const { data: comments } = await github.rest.issues.listComments({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                      });
+                      const existingComment = comments.find(comment => 
+                        comment.body.includes('🧪 Unit Test Coverage Report')
+                      );
+                      if (existingComment) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existingComment.id,
+                          body: comment
+                        });
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: comment
+                        });
+                      }
+
+    unit-test-coverage:
+        runs-on: ubuntu-latest
+        timeout-minutes: 45
+        needs: [check-relevant-files]
+        if: ${{ needs.check-relevant-files.outputs.should_skip_coverage != 'true' }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  fetch-depth: 0
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
+
+            - name: Install Poetry
+              uses: snok/install-poetry@v1
+              with:
+                  version: latest
+                  virtualenvs-create: true
+                  virtualenvs-in-project: true
+
+            - name: Load cached venv
+              id: cached-poetry-dependencies
+              uses: actions/cache@v4
+              with:
+                  path: .venv
+                  key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+            - name: Install dependencies
+              if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+              run: poetry install --no-interaction --no-root
+
+            - name: Install project
+              run: poetry install --no-interaction
+
+            - name: Load changed files from previous job
+              id: changed-files
+              run: |
+                  echo "📁 Using file analysis from check-relevant-files job..."
+                  RELEVANT_FILES="${{ needs.check-relevant-files.outputs.changed_files }}"
+                  FILE_COUNT="${{ needs.check-relevant-files.outputs.file_count }}"
+
+                  echo "Files to analyze for coverage:"
+                  echo "$RELEVANT_FILES"
+                  echo "Total relevant files: $FILE_COUNT"
+
+                  # Save to outputs for later steps
+                  echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+                  echo "$RELEVANT_FILES" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+                  echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+            - name: Run unit tests with coverage for changed files
+              id: run-tests
+              run: |
+                  RELEVANT_FILES="${{ needs.check-relevant-files.outputs.changed_files }}"
+                  FILE_COUNT="${{ needs.check-relevant-files.outputs.file_count }}"
+                  echo "🧪 Running unit tests with coverage for changed files..."
+                  echo "Files to check coverage for:"
+                  echo "$RELEVANT_FILES"
+                  echo "Total files: $FILE_COUNT"
+                  # Create include pattern for coverage and find related test files
+                  COVERAGE_INCLUDE=""
+                  ACTUAL_TEST_FILES=""
+                  while IFS= read -r file; do
+                    if [ -n "$file" ]; then
+                      # Add to coverage include
+                      if [ -z "$COVERAGE_INCLUDE" ]; then
+                        COVERAGE_INCLUDE="--coverage.include='$file'"
+                      else
+                        COVERAGE_INCLUDE="$COVERAGE_INCLUDE --coverage.include='$file'"
+                      fi
+                      
+                      # Find related test files for this source file
+                      file_dir=$(dirname "$file")
+                      file_name=$(basename "$file" | sed 's/\.[^.]*$//')
+                      
+                      echo "🔍 Looking for tests for: $file"
+                      echo "  File directory: $file_dir"
+                      echo "  File name: $file_name"
+                      
+                      # Search for test files using multiple strategies
+                      # Strategy 1: Same directory with test_ prefix
+                      test_files=$(find "$file_dir" -maxdepth 1 -name "test_$file_name.py" 2>/dev/null | head -20)
+                      if [ -n "$test_files" ]; then
+                        echo "  ✓ Found same-dir tests: $test_files"
+                        ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                      fi
+                      
+                      # Strategy 2: tests/ directory structure
+                      if [ -d "tests" ]; then
+                        # Convert src/path/to/file.py to tests/path/to/test_file.py
+                        test_path="tests/${file#src/}"
+                        test_dir=$(dirname "$test_path")
+                        test_file="test_$(basename "$test_path")"
+                        test_files=$(find "$test_dir" -name "$test_file" 2>/dev/null | head -20)
+                        if [ -n "$test_files" ]; then
+                          echo "  ✓ Found tests/ dir tests: $test_files"
+                          ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                        fi
+                        
+                        # Also try to find any test file that might test this module
+                        # For health.py, look for test_health.py in the same relative path
+                        relative_path="${file#src/}"
+                        test_relative_path="tests/${relative_path}"
+                        test_dir=$(dirname "$test_relative_path")
+                        if [ -d "$test_dir" ]; then
+                          test_files=$(find "$test_dir" -name "test_*.py" 2>/dev/null | head -20)
+                          if [ -n "$test_files" ]; then
+                            echo "  ✓ Found tests in directory: $test_files"
+                            ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                          fi
+                        fi
+                      fi
+                      
+                      # Strategy 3: Look for any test files that might test this module
+                      test_files=$(find tests/ -name "*test*$file_name*" 2>/dev/null | head -10)
+                      if [ -n "$test_files" ]; then
+                        echo "  ✓ Found related tests: $test_files"
+                        ACTUAL_TEST_FILES="$ACTUAL_TEST_FILES $test_files"
+                      fi
+                      
+                      # Strategy 4: If no specific tests found, run all tests in the tests/ directory
+                      # This ensures we don't miss any tests due to naming mismatches
+                      if [ -z "$ACTUAL_TEST_FILES" ] || [ "$ACTUAL_TEST_FILES" = "" ]; then
+                        echo "  🔍 No specific tests found, will run all tests in tests/ directory"
+                        ALL_TEST_FILES=$(find tests/ -name "test_*.py" 2>/dev/null | head -50)
+                        if [ -n "$ALL_TEST_FILES" ]; then
+                          echo "  ✓ Found all test files: $ALL_TEST_FILES"
+                          ACTUAL_TEST_FILES="$ALL_TEST_FILES"
+                        fi
+                      fi
+                    fi
+                  done <<< "$RELEVANT_FILES"
+
+                  # Remove duplicates and clean up the test file list
+                  ACTUAL_TEST_FILES=$(echo "$ACTUAL_TEST_FILES" | tr ' ' '\n' | sort | uniq | grep -v '^$' | tr '\n' ' ' | xargs)
+
+                  echo "📋 Final Results:"
+                  echo "Coverage include pattern: $COVERAGE_INCLUDE"
+                  echo "Actual test files found: $ACTUAL_TEST_FILES"
+                  echo "Number of test files found: $(echo "$ACTUAL_TEST_FILES" | wc -w)"
+                  
+                  # Debug: List all test files in the repository
+                  echo "🔍 All test files in repository:"
+                  find tests/ -name "test_*.py" 2>/dev/null || echo "No test files found in tests/"
+                  echo "🔍 All Python files in tests/:"
+                  find tests/ -name "*.py" 2>/dev/null || echo "No Python files found in tests/"
+                  # Run tests with coverage only for changed files and related tests
+                  echo "🔧 Running coverage command for changed files and their tests..."
+                  if [ -n "$ACTUAL_TEST_FILES" ] || [ -d "tests" ]; then
+                    # Run only specific test files with coverage for changed source files
+                    echo "📋 Running specific tests: $ACTUAL_TEST_FILES"
+                    echo "🔧 Coverage include pattern: $COVERAGE_INCLUDE"
+                    echo "🚀 Starting pytest with coverage..."
+                    
+                    # Run tests with coverage for changed files
+                    echo "📋 Coverage includes: $COVERAGE_INCLUDE"
+                    echo "📋 Test files: $ACTUAL_TEST_FILES"
+                    echo "📋 Changed files: $RELEVANT_FILES"
+                    
+                    # Create a simplified command with just the essential coverage options
+                    if [ -n "$ACTUAL_TEST_FILES" ]; then
+                      COVERAGE_CMD="poetry run pytest \
+                        --cov=src \
+                        --cov-report=term \
+                        --cov-report=json:coverage/coverage-summary.json \
+                        --cov-report=html:coverage/html \
+                        --cov-report=xml:coverage/coverage.xml \
+                        $ACTUAL_TEST_FILES"
+                    else
+                      # If no specific tests found, run all tests
+                      COVERAGE_CMD="poetry run pytest \
+                        --cov=src \
+                        --cov-report=term \
+                        --cov-report=json:coverage/coverage-summary.json \
+                        --cov-report=html:coverage/html \
+                        --cov-report=xml:coverage/coverage.xml \
+                        tests/"
+                    fi
+                    
+                    echo "🚀 Executing coverage command:"
+                    echo "$COVERAGE_CMD"
+                    
+                    # Execute the coverage command and capture both stdout and stderr
+                    echo "🔄 Executing command..."
+                    if eval "$COVERAGE_CMD" 2>&1; then
+                      echo "✅ Coverage collection completed successfully"
+                      
+                      # Generate JSON coverage report
+                      echo "🔍 Generating JSON coverage report..."
+                      poetry run coverage json
+                      
+                      # Debug coverage output
+                      echo "🔍 Checking coverage files..."
+                      if [ -f "coverage.json" ]; then
+                        echo "✓ coverage.json exists"
+                        echo "📊 Raw coverage data:"
+                        head -5 coverage.json
+                        echo "🎯 Test execution successful with coverage data"
+                      else
+                        echo "❌ coverage.json not found"
+                        echo "📁 Available files:"
+                        ls -la coverage* .coverage 2>/dev/null || echo "No coverage files found"
+                        echo "⚠️ Tests may have run but coverage data wasn't generated properly"
+                      fi
+                    else
+                      echo "❌ Test execution failed"
+                      echo "📋 Checking for any generated files..."
+                      ls -la coverage/ 2>/dev/null || echo "No coverage directory found"
+                      echo "coverage_failed=true" >> $GITHUB_OUTPUT
+                      exit 1
+                    fi
+                  else
+                    echo "📝 No specific test files found for changed source files."
+                    echo "⚠️ This likely means the changed files don't have corresponding unit tests."
+                    echo "Creating minimal coverage report for changed files without tests..."
+                    
+                    # Create a minimal coverage report indicating no tests were found
+                    cat > coverage.json << 'EOF'
+                  {
+                    "totals": {
+                      "covered_lines": 0,
+                      "num_statements": 1,
+                      "percent_covered": 0,
+                      "percent_covered_display": "0",
+                      "missing_lines": 1,
+                      "excluded_lines": 0
+                    }
+                  }
+                  EOF
+                    echo "no_tests_found=true" >> $GITHUB_OUTPUT
+                  fi
+                                      echo "✅ Coverage analysis completed for relevant files"
+            - name: Display unit test coverage summary
+              id: coverage-summary
+              run: |
+                  NO_TESTS_FOUND="${{ steps.run-tests.outputs.no_tests_found }}"
+                  FILE_COUNT="${{ needs.check-relevant-files.outputs.file_count }}"
+                  if [ "$NO_TESTS_FOUND" = "true" ]; then
+                    echo "⚠️ No tests found for changed files"
+                    echo "coverage_status=no_tests" >> $GITHUB_OUTPUT
+                  elif [ ! -f "coverage.json" ]; then
+                    echo "❌ Coverage summary file not found!"
+                    echo "coverage_status=no_coverage_file" >> $GITHUB_OUTPUT
+                  else
+                    node -e "
+                      const fs = require('fs');
+                      try {
+                        const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+                        
+                        // Handle different coverage report formats
+                        let total;
+                        if (coverage.totals) {
+                          // New format with totals object
+                          total = {
+                            lines: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            functions: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            branches: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            statements: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            }
+                          };
+                        } else if (coverage.total) {
+                          // Old format with total object
+                          total = coverage.total;
+                        } else {
+                          // Calculate totals from files
+                          const files = Object.values(coverage.files || {});
+                          total = {
+                            lines: { covered: 0, total: 0, pct: 0 },
+                            functions: { covered: 0, total: 0, pct: 0 },
+                            branches: { covered: 0, total: 0, pct: 0 },
+                            statements: { covered: 0, total: 0, pct: 0 }
+                          };
+                          
+                          files.forEach(file => {
+                            if (file.summary) {
+                              total.lines.covered += file.summary.covered_lines || 0;
+                              total.lines.total += file.summary.num_statements || 0;
+                              total.statements.covered += file.summary.covered_lines || 0;
+                              total.statements.total += file.summary.num_statements || 0;
+                            }
+                          });
+                          
+                          // Calculate percentages
+                          total.lines.pct = total.lines.total > 0 ? Math.round((total.lines.covered / total.lines.total) * 100) : 0;
+                          total.statements.pct = total.statements.total > 0 ? Math.round((total.statements.covered / total.statements.total) * 100) : 0;
+                          total.functions.pct = total.lines.pct; // Use same as lines for now
+                          total.branches.pct = total.lines.pct; // Use same as lines for now
+                        }
+                        
+                        console.log('📊 Unit Test Coverage Summary (Changed Files Only):');
+                        console.log('Files analyzed: $FILE_COUNT');
+                        console.log('Lines: ' + total.lines.pct + '%');
+                        console.log('Functions: ' + total.functions.pct + '%');
+                        console.log('Branches: ' + total.branches.pct + '%');
+                        console.log('Statements: ' + total.statements.pct + '%');
+                        console.log('✅ Coverage report generated successfully!');
+                      } catch (error) {
+                        console.error('❌ Failed to read coverage summary:', error.message);
+                        process.exit(1);
+                      }
+                    "
+                    echo "coverage_status=success" >> $GITHUB_OUTPUT
+                  fi
+            - name: Comment unit test coverage on PR
+              if: always()
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const noTestsFound = '${{ steps.run-tests.outputs.no_tests_found }}';
+                      const fileCount = '${{ needs.check-relevant-files.outputs.file_count }}';
+                      const changedFiles = `${{ needs.check-relevant-files.outputs.changed_files }}`;
+                      const coverageFailed = '${{ steps.run-tests.outputs.coverage_failed }}';
+                      const coverageStatus = '${{ steps.coverage-summary.outputs.coverage_status }}';
+                      let coverageComment = '';
+                      if (false) { // This condition is now handled by separate jobs
+                        coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
+                        
+                        **Scope:** Changed Files Only
+                        
+                        📝 **No relevant source files were changed in this PR.**
+                        
+                        Files analyzed: **0**
+                        
+                        **Overall Status:** ✅ **Coverage check passed** - No source code changes to analyze
+                        
+                        <details>
+                        <summary>ℹ️ What files are analyzed?</summary>
+                        
+                        - **Included:** \`.vue\`, \`.ts\`, \`.js\` files in \`src/\`
+                        - **Excluded:** Test files, stories, e2e, mocks, generated files
+                        - **Required:** 80% line coverage for changed files
+                        - **Informational:** Function, branch, and statement coverage (shown but not enforced)
+                        
+                        **Note:** Only files modified in this PR are analyzed for coverage.
+                        </details>`;
+                      } else if (noTestsFound === 'true') {
+                        const changedFilesList = changedFiles.split('\n').filter(f => f.trim()).slice(0, 10);
+                        const hasMoreFiles = changedFiles.split('\n').filter(f => f.trim()).length > 10;
+                        
+                        coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
+                        
+                        **Scope:** Changed Files Only (${fileCount} files)
+                        
+                        ❌ **Coverage Check Failed - No Tests Found**
+                        
+                        The following files were changed but no corresponding unit tests were found:
+                        
+                        ${changedFilesList.map(file => `- \`${file}\``).join('\n')}
+                        ${hasMoreFiles ? `\n... and ${parseInt(fileCount) - 10} more files` : ''}
+                        
+                        💡 **Recommendations:**
+                        1. Consider adding unit tests for the changed files
+                        2. Ensure test files follow naming conventions (\`test_*.py\`)
+                        3. Place tests in \`tests/\` directory with matching structure
+                        
+                        **Coverage Analysis:** Informational reporting (no thresholds enforced)
+                        
+                        <details>
+                        <summary>ℹ️ Test File Naming Conventions</summary>
+                        
+                        For a file \`src/api/fastapi/routes/health.py\`, tests should be named:
+                        - \`tests/api/fastapi/routes/test_health.py\`
+                        - \`test_health.py\` (in same directory)
+                        </details>`;
+                      } else if (coverageFailed === 'true') {
+                        coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
+                        
+                        ❌ **Coverage Check Failed**
+                        
+                        Unable to generate coverage report for changed files. This typically happens when:
+                        
+                        - No tests exist for the changed files
+                        - The changed files don't export testable code
+                        - There are syntax errors in the changed files
+                        - pytest configuration issues
+                        
+                        **Files attempted to analyze:** ${fileCount}
+                        
+                        💡 **Next Steps:**
+                        1. Check if unit tests exist for your changed files
+                        2. Ensure your files export functions/components that can be tested
+                        3. Run tests locally: \`poetry run pytest --cov=src\`
+                        4. Check the workflow logs for detailed error messages`;
+                      } else {
+                        try {
+                          const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+                          
+                          // Handle different coverage report formats
+                          let total;
+                          if (coverage.totals) {
+                            // New format with totals object
+                            total = {
+                              lines: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              functions: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              branches: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              statements: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              }
+                            };
+                          } else if (coverage.total) {
+                            // Old format with total object
+                            total = coverage.total;
+                          } else {
+                            // Calculate totals from files
+                            const files = Object.values(coverage.files || {});
+                            total = {
+                              lines: { covered: 0, total: 0, pct: 0 },
+                              functions: { covered: 0, total: 0, pct: 0 },
+                              branches: { covered: 0, total: 0, pct: 0 },
+                              statements: { covered: 0, total: 0, pct: 0 }
+                            };
+                            
+                            files.forEach(file => {
+                              if (file.summary) {
+                                total.lines.covered += file.summary.covered_lines || 0;
+                                total.lines.total += file.summary.num_statements || 0;
+                                total.statements.covered += file.summary.covered_lines || 0;
+                                total.statements.total += file.summary.num_statements || 0;
+                              }
+                            });
+                            
+                            // Calculate percentages
+                            total.lines.pct = total.lines.total > 0 ? Math.round((total.lines.covered / total.lines.total) * 100) : 0;
+                            total.statements.pct = total.statements.total > 0 ? Math.round((total.statements.covered / total.statements.total) * 100) : 0;
+                            total.functions.pct = total.lines.pct; // Use same as lines for now
+                            total.branches.pct = total.lines.pct; // Use same as lines for now
+                          }
+                          
+                          const changedFilesList = changedFiles.split('\n').filter(f => f.trim()).slice(0, 10); // Show first 10 files
+                          const hasMoreFiles = changedFiles.split('\n').filter(f => f.trim()).length > 10;
+                          
+                          coverageComment = `\`\`\`
+                          ## 🧪 Unit Test Coverage Report (Diff Coverage)
+                          
+                          **Scope:** Changed Files Only (${fileCount} files)
+                          
+                          | Metric | Coverage | Status |
+                          |--------|----------|---------|
+                          | Lines | ${total.lines.pct}% | ${total.lines.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Functions | ${total.functions.pct}% | ${total.functions.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Branches | ${total.branches.pct}% | ${total.branches.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Statements | ${total.statements.pct}% | ${total.statements.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          
+                          **Overall Status:** ✅ **Coverage report generated successfully!**
+                          
+                          <details>
+                          <summary>📈 Detailed Coverage for Changed Files</summary>
+                          
+                          - **Lines:** ${total.lines.covered}/${total.lines.total} (${total.lines.pct}%)
+                          - **Functions:** ${total.functions.covered}/${total.functions.total} (${total.functions.pct}%)
+                          - **Branches:** ${total.branches.covered}/${total.branches.total} (${total.branches.pct}%)
+                          - **Statements:** ${total.statements.covered}/${total.statements.total} (${total.statements.pct}%)
+                          </details>
+                          
+                          <details>
+                          <summary>📁 Files Analyzed (${fileCount} total)</summary>
+                          
+                          ${changedFilesList.map(file => `- \`${file}\``).join('\n')}
+                          ${hasMoreFiles ? `\n... and ${parseInt(fileCount) - 10} more files` : ''}
+                          </details>
+                          
+                          <details>
+                          <summary>ℹ️ About Diff Coverage</summary>
+                          
+                          - **Focus:** Only files changed in this PR are analyzed
+                          - **Benefit:** Faster feedback, focused on new/modified code
+                          - **Purpose:** Informational coverage reporting (no thresholds enforced)
+                          - **Shows:** Line, function, branch, and statement coverage metrics
+                          - **Excludes:** Test files, \`__pycache__\`, \`.pytest_cache\`
+                          </details>
+                          \`\`\``;
+                                                } catch (error) {
+                          console.error('Failed to read coverage file:', error);
+                          coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
+                          
+                          ❌ **Coverage Check Failed**
+                          
+                          Unable to generate coverage report for changed files. Please check the workflow logs for more details.
+                          
+                          **Files to analyze:** ${fileCount}`;
+                        }
+                      }
+                      try {
+                        // Find existing unit test coverage comment
+                        const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                        });
+                        
+                        const existingComment = comments.find(comment => 
+                          comment.body.includes('🧪 Unit Test Coverage Report') || 
+                          comment.body.includes('⏭️ Unit Test Coverage Skipped')
+                        );
+                        
+                        if (existingComment) {
+                          await github.rest.issues.updateComment({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            comment_id: existingComment.id,
+                            body: coverageComment
+                          });
+                          console.log('Updated existing unit test coverage comment');
+                        } else {
+                          await github.rest.issues.createComment({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            issue_number: context.issue.number,
+                            body: coverageComment
+                          });
+                          console.log('Created new unit test coverage comment');
+                        }
+                      } catch (error) {
+                        console.error('Failed to post unit test coverage comment:', error);
+                        
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                          body: '❌ **Unit Test Coverage Check Failed**\n\nUnable to generate unit test coverage report. Please check the workflow logs for more details.'
+                        });
+                      }
+            - name: Upload unit test coverage reports
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: unit-test-diff-coverage-reports-${{ github.event.pull_request.number }}
+                  path: |
+                      coverage/
+                      .coverage
+                      !coverage/html/
+                  retention-days: 30
