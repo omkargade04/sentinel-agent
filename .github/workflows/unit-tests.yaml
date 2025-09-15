@@ -37,6 +37,7 @@ jobs:
       - name: Run Tests with Coverage
         run: |
           poetry install
+          poetry run pip install coverage
           poetry run coverage run -m pytest tests
           poetry run coverage report
           poetry run coverage xml
