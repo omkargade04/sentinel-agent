@@ -547,17 +547,21 @@ jobs:
                     if eval "$COVERAGE_CMD" 2>&1; then
                       echo "✅ Coverage collection completed successfully"
                       
+                      # Generate JSON coverage report
+                      echo "🔍 Generating JSON coverage report..."
+                      poetry run coverage json
+                      
                       # Debug coverage output
                       echo "🔍 Checking coverage files..."
-                      if [ -f "coverage/coverage-summary.json" ]; then
-                        echo "✓ coverage-summary.json exists"
+                      if [ -f "coverage.json" ]; then
+                        echo "✓ coverage.json exists"
                         echo "📊 Raw coverage data:"
-                        cat coverage/coverage-summary.json
+                        head -5 coverage.json
                         echo "🎯 Test execution successful with coverage data"
                       else
-                        echo "❌ coverage-summary.json not found"
-                        echo "📁 Available files in coverage directory:"
-                        ls -la coverage/ || echo "No coverage directory found"
+                        echo "❌ coverage.json not found"
+                        echo "📁 Available files:"
+                        ls -la coverage* .coverage 2>/dev/null || echo "No coverage files found"
                         echo "⚠️ Tests may have run but coverage data wasn't generated properly"
                       fi
                     else
@@ -573,14 +577,15 @@ jobs:
                     echo "Creating minimal coverage report for changed files without tests..."
                     
                     # Create a minimal coverage report indicating no tests were found
-                    mkdir -p coverage
-                    cat > coverage/coverage-summary.json << 'EOF'
+                    cat > coverage.json << 'EOF'
                   {
-                    "total": {
-                      "lines": {"total": 1, "covered": 0, "skipped": 0, "pct": 0},
-                      "statements": {"total": 1, "covered": 0, "skipped": 0, "pct": 0},
-                      "functions": {"total": 1, "covered": 0, "skipped": 0, "pct": 0},
-                      "branches": {"total": 1, "covered": 0, "skipped": 0, "pct": 0}
+                    "totals": {
+                      "covered_lines": 0,
+                      "num_statements": 1,
+                      "percent_covered": 0,
+                      "percent_covered_display": "0",
+                      "missing_lines": 1,
+                      "excluded_lines": 0
                     }
                   }
                   EOF
@@ -595,15 +600,69 @@ jobs:
                   if [ "$NO_TESTS_FOUND" = "true" ]; then
                     echo "⚠️ No tests found for changed files"
                     echo "coverage_status=no_tests" >> $GITHUB_OUTPUT
-                  elif [ ! -f "coverage/coverage-summary.json" ]; then
+                  elif [ ! -f "coverage.json" ]; then
                     echo "❌ Coverage summary file not found!"
                     echo "coverage_status=no_coverage_file" >> $GITHUB_OUTPUT
                   else
                     node -e "
                       const fs = require('fs');
                       try {
-                        const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
-                        const total = coverage.total;
+                        const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+                        
+                        // Handle different coverage report formats
+                        let total;
+                        if (coverage.totals) {
+                          // New format with totals object
+                          total = {
+                            lines: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            functions: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            branches: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            },
+                            statements: { 
+                              covered: coverage.totals.covered_lines || 0, 
+                              total: coverage.totals.num_statements || 0, 
+                              pct: Math.round(coverage.totals.percent_covered || 0) 
+                            }
+                          };
+                        } else if (coverage.total) {
+                          // Old format with total object
+                          total = coverage.total;
+                        } else {
+                          // Calculate totals from files
+                          const files = Object.values(coverage.files || {});
+                          total = {
+                            lines: { covered: 0, total: 0, pct: 0 },
+                            functions: { covered: 0, total: 0, pct: 0 },
+                            branches: { covered: 0, total: 0, pct: 0 },
+                            statements: { covered: 0, total: 0, pct: 0 }
+                          };
+                          
+                          files.forEach(file => {
+                            if (file.summary) {
+                              total.lines.covered += file.summary.covered_lines || 0;
+                              total.lines.total += file.summary.num_statements || 0;
+                              total.statements.covered += file.summary.covered_lines || 0;
+                              total.statements.total += file.summary.num_statements || 0;
+                            }
+                          });
+                          
+                          // Calculate percentages
+                          total.lines.pct = total.lines.total > 0 ? Math.round((total.lines.covered / total.lines.total) * 100) : 0;
+                          total.statements.pct = total.statements.total > 0 ? Math.round((total.statements.covered / total.statements.total) * 100) : 0;
+                          total.functions.pct = total.lines.pct; // Use same as lines for now
+                          total.branches.pct = total.lines.pct; // Use same as lines for now
+                        }
                         
                         console.log('📊 Unit Test Coverage Summary (Changed Files Only):');
                         console.log('Files analyzed: $FILE_COUNT');
@@ -702,8 +761,62 @@ jobs:
                         4. Check the workflow logs for detailed error messages`;
                       } else {
                         try {
-                          const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
-                          const total = coverage.total;
+                          const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
+                          
+                          // Handle different coverage report formats
+                          let total;
+                          if (coverage.totals) {
+                            // New format with totals object
+                            total = {
+                              lines: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              functions: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              branches: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              },
+                              statements: { 
+                                covered: coverage.totals.covered_lines || 0, 
+                                total: coverage.totals.num_statements || 0, 
+                                pct: Math.round(coverage.totals.percent_covered || 0) 
+                              }
+                            };
+                          } else if (coverage.total) {
+                            // Old format with total object
+                            total = coverage.total;
+                          } else {
+                            // Calculate totals from files
+                            const files = Object.values(coverage.files || {});
+                            total = {
+                              lines: { covered: 0, total: 0, pct: 0 },
+                              functions: { covered: 0, total: 0, pct: 0 },
+                              branches: { covered: 0, total: 0, pct: 0 },
+                              statements: { covered: 0, total: 0, pct: 0 }
+                            };
+                            
+                            files.forEach(file => {
+                              if (file.summary) {
+                                total.lines.covered += file.summary.covered_lines || 0;
+                                total.lines.total += file.summary.num_statements || 0;
+                                total.statements.covered += file.summary.covered_lines || 0;
+                                total.statements.total += file.summary.num_statements || 0;
+                              }
+                            });
+                            
+                            // Calculate percentages
+                            total.lines.pct = total.lines.total > 0 ? Math.round((total.lines.covered / total.lines.total) * 100) : 0;
+                            total.statements.pct = total.statements.total > 0 ? Math.round((total.statements.covered / total.statements.total) * 100) : 0;
+                            total.functions.pct = total.lines.pct; // Use same as lines for now
+                            total.branches.pct = total.lines.pct; // Use same as lines for now
+                          }
                           
                           const changedFilesList = changedFiles.split('\n').filter(f => f.trim()).slice(0, 10); // Show first 10 files
                           const hasMoreFiles = changedFiles.split('\n').filter(f => f.trim()).length > 10;
