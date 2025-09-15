@@ -1,166 +1,50 @@
-- name: Comment unit test coverage on PR
-  if: always()
-  uses: actions/github-script@v7
-  with:
-    script: |
-      const fs = require('fs');
+name: Unit Tests with Coverage for PR
 
-      // Inputs from previous steps
-      const noTestsFound = '${{ steps.run-tests.outputs.no_tests_found }}';
-      const fileCount = '${{ needs.check-relevant-files.outputs.file_count }}';
-      const changedFiles = `${{ needs.check-relevant-files.outputs.changed_files }}`;
-      const coverageFailed = '${{ steps.run-tests.outputs.coverage_failed }}';
-      const coverageStatus = '${{ steps.coverage-summary.outputs.coverage_status }}';
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
 
-      // Marker so we can update the same comment each run
-      const MARKER = '<!-- unit-test-coverage-comment -->';
+permissions:
+  id-token: write
+  issues: write
+  discussions: write
+  pull-requests: write
+  actions: write
+  contents: write
+  checks: write
+  deployments: write
+  packages: write
 
-      // Helper: create list of changed files (first 10)
-      const filesArr = (changedFiles || '')
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean);
-      const topFiles = filesArr.slice(0, 10).map(f => `- \`${f}\``).join('\n');
-      const hasMore = filesArr.length > 10 ? `\n... and ${filesArr.length - 10} more files` : '';
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-      let body;
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v1
+        with:
+          python-version: "3.11"
+      
+      - name: Install poetry
+        run: |
+          pip install poetry
 
-      if (noTestsFound === 'true') {
-        body = `${MARKER}
-## 🧪 Unit Test Coverage Report (Diff Coverage)
+      - name: Run Tests with Coverage
+        run: |
+          poetry install
+          poetry run pip install coverage
+          poetry run coverage run -m pytest tests
+          poetry run coverage report
+          poetry run coverage xml
+          poetry run coverage html
 
-**Scope:** Changed Files Only (${fileCount} files)
-
-❌ **Coverage Check Failed – No Tests Found**
-
-The following files were changed but no corresponding unit tests were found:
-
-${topFiles}${hasMore}
-
-**Recommendations**
-1. Add unit tests for the changed files
-2. Ensure test files follow naming \`test_*.py\`
-3. Place tests in \`tests/\` with matching structure
-
-<details>
-<summary>ℹ️ Test File Naming Conventions</summary>
-
-For a file \`src/api/fastapi/routes/health.py\`, tests should be named:
-- \`tests/api/fastapi/routes/test_health.py\`
-- \`test_health.py\` (in same directory)
-</details>
-`;
-      } else if (coverageFailed === 'true' || coverageStatus !== 'success') {
-        body = `${MARKER}
-## 🧪 Unit Test Coverage Report (Diff Coverage)
-
-❌ **Coverage Check Failed**
-
-Unable to generate coverage report for changed files. Please check workflow logs.
-
-**Files to analyze:** ${fileCount}
-`;
-      } else {
-        // Read coverage.json and compute totals (same logic as your step)
-        let total;
-        try {
-          const coverage = JSON.parse(fs.readFileSync('coverage.json', 'utf8'));
-          if (coverage.totals) {
-            total = {
-              lines:      { covered: coverage.totals.covered_lines || 0, total: coverage.totals.num_statements || 0, pct: Math.round(coverage.totals.percent_covered || 0) },
-              functions:  { covered: coverage.totals.covered_lines || 0, total: coverage.totals.num_statements || 0, pct: Math.round(coverage.totals.percent_covered || 0) },
-              branches:   { covered: coverage.totals.covered_lines || 0, total: coverage.totals.num_statements || 0, pct: Math.round(coverage.totals.percent_covered || 0) },
-              statements: { covered: coverage.totals.covered_lines || 0, total: coverage.totals.num_statements || 0, pct: Math.round(coverage.totals.percent_covered || 0) },
-            };
-          } else if (coverage.total) {
-            total = coverage.total;
-          } else {
-            const files = Object.values(coverage.files || {});
-            total = {
-              lines: { covered: 0, total: 0, pct: 0 },
-              functions: { covered: 0, total: 0, pct: 0 },
-              branches: { covered: 0, total: 0, pct: 0 },
-              statements: { covered: 0, total: 0, pct: 0 },
-            };
-            files.forEach(f => {
-              if (f.summary) {
-                total.lines.covered += f.summary.covered_lines || 0;
-                total.lines.total   += f.summary.num_statements || 0;
-                total.statements.covered += f.summary.covered_lines || 0;
-                total.statements.total   += f.summary.num_statements || 0;
-              }
-            });
-            total.lines.pct = total.lines.total > 0 ? Math.round((total.lines.covered / total.lines.total) * 100) : 0;
-            total.statements.pct = total.statements.total > 0 ? Math.round((total.statements.covered / total.statements.total) * 100) : 0;
-            total.functions.pct = total.lines.pct;
-            total.branches.pct  = total.lines.pct;
-          }
-        } catch (e) {
-          // Fallback if read fails
-          total = {
-            lines: { pct: 0, covered: 0, total: 0 },
-            functions: { pct: 0, covered: 0, total: 0 },
-            branches: { pct: 0, covered: 0, total: 0 },
-            statements: { pct: 0, covered: 0, total: 0 },
-          };
-        }
-
-        const status = (pct) => pct >= 80 ? '✅ Good' : '📊 Info';
-
-        body = `${MARKER}
-## 🧪 Unit Test Coverage Report (Diff Coverage)
-
-**Scope:** Changed Files Only (${fileCount} files)
-
-| Metric     | Coverage | Status   |
-|------------|---------:|:---------|
-| Lines      | ${total.lines.pct}% | ${status(total.lines.pct)} |
-| Functions  | ${total.functions.pct}% | ${status(total.functions.pct)} |
-| Branches   | ${total.branches.pct}% | ${status(total.branches.pct)} |
-| Statements | ${total.statements.pct}% | ${status(total.statements.pct)} |
-
-**Overall Status:** ✅ **Coverage report generated successfully!**
-
-<details>
-<summary>📈 Detailed Coverage for Changed Files</summary>
-
-- **Lines:** ${total.lines.covered ?? '-'} / ${total.lines.total ?? '-'} (${total.lines.pct}%)
-- **Functions:** ${total.functions.covered ?? '-'} / ${total.functions.total ?? '-'} (${total.functions.pct}%)
-- **Branches:** ${total.branches.covered ?? '-'} / ${total.branches.total ?? '-'} (${total.branches.pct}%)
-- **Statements:** ${total.statements.covered ?? '-'} / ${total.statements.total ?? '-'} (${total.statements.pct}%)
-
-</details>
-
-<details>
-<summary>📁 Files Analyzed (${fileCount} total)</summary>
-
-${topFiles}${hasMore}
-
-</details>
-
-<details>
-<summary>ℹ️ About Diff Coverage</summary>
-
-- **Focus:** Only files changed in this PR are analyzed  
-- **Benefit:** Faster feedback, focused on new/modified code  
-- **Purpose:** Informational coverage reporting (no thresholds enforced)  
-- **Shows:** Line, function, branch, and statement coverage metrics  
-- **Excludes:** Test files, \`__pycache__\`, \`.pytest_cache\`
-
-</details>
-`;
-      }
-
-      // Create or update a single sticky comment (by marker)
-      const { owner, repo } = context.repo;
-      const issue_number = context.issue.number;
-      const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
-      const existing = comments.find(c => c.body && c.body.includes(MARKER));
-
-      if (existing) {
-        await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-        core.info('Updated existing unit test coverage comment');
-      } else {
-        await github.rest.issues.createComment({ owner, repo, issue_number, body });
-        core.info('Created new unit test coverage comment');
-      }
+      - name: Comment Coverage Report on PR
+        uses: orgoro/coverage@v2.1
+        with:
+          coverageFile: coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
