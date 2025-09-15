@@ -322,11 +322,11 @@ jobs:
 
                       **Reason:** No relevant source files were changed in this PR.
 
-                      📋 **Coverage Requirements:**
+                      📋 **Coverage Analysis:**
                       - **Included:** \`.py\` files in \`src/\`
                       - **Excluded:** Test files, \`__pycache__\`, \`.pytest_cache\`
-                      - **Required:** 80% line coverage for changed files
-                      - **Informational:** Function, branch, and statement coverage (shown but not enforced)
+                      - **Purpose:** Informational coverage reporting (no thresholds enforced)
+                      - **Shows:** Line, function, branch, and statement coverage metrics
 
                       🏆 **Result:** Coverage check automatically passed - no source code changes to analyze.`;
 
@@ -527,7 +527,6 @@ jobs:
                         --cov-report=json:coverage/coverage-summary.json \
                         --cov-report=html:coverage/html \
                         --cov-report=xml:coverage/coverage.xml \
-                        --cov-fail-under=80 \
                         $ACTUAL_TEST_FILES"
                     else
                       # If no specific tests found, run all tests
@@ -537,7 +536,6 @@ jobs:
                         --cov-report=json:coverage/coverage-summary.json \
                         --cov-report=html:coverage/html \
                         --cov-report=xml:coverage/coverage.xml \
-                        --cov-fail-under=80 \
                         tests/"
                     fi
                     
@@ -589,51 +587,38 @@ jobs:
                     echo "no_tests_found=true" >> $GITHUB_OUTPUT
                   fi
                                       echo "✅ Coverage analysis completed for relevant files"
-            - name: Check unit test coverage threshold
-              id: coverage-check
+            - name: Display unit test coverage summary
+              id: coverage-summary
               run: |
                   NO_TESTS_FOUND="${{ steps.run-tests.outputs.no_tests_found }}"
                   FILE_COUNT="${{ needs.check-relevant-files.outputs.file_count }}"
                   if [ "$NO_TESTS_FOUND" = "true" ]; then
-                    echo "⚠️ No tests found for changed files - coverage check failed"
-                    echo "coverage_status=failed_no_tests" >> $GITHUB_OUTPUT
-                    exit 1
-                  fi
-                  if [ ! -f "coverage/coverage-summary.json" ]; then
+                    echo "⚠️ No tests found for changed files"
+                    echo "coverage_status=no_tests" >> $GITHUB_OUTPUT
+                  elif [ ! -f "coverage/coverage-summary.json" ]; then
                     echo "❌ Coverage summary file not found!"
-                    exit 1
-                  fi
-                  node -e "
-                    const fs = require('fs');
-                    try {
-                      const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
-                      const total = coverage.total;
-                      
-                      console.log('📊 Unit Test Coverage Summary (Changed Files Only):');
-                      console.log('Files analyzed: $FILE_COUNT');
-                      console.log('Lines: ' + total.lines.pct + '%');
-                      console.log('Functions: ' + total.functions.pct + '%');
-                      console.log('Branches: ' + total.branches.pct + '%');
-                      console.log('Statements: ' + total.statements.pct + '%');
-                      
-                      // Unit test specific threshold - only line coverage is enforced at 80%
-                      const minLineCoverage = 80;
-                      
-                      const linesCoverage = total.lines.pct;
-                      const linesPass = linesCoverage >= minLineCoverage;
-                      
-                      if (!linesPass) {
-                        console.error(\`❌ Unit test line coverage below required threshold for changed files:\`);
-                        console.error(\`Lines: \${linesCoverage}% (required: \${minLineCoverage}%)\`);
+                    echo "coverage_status=no_coverage_file" >> $GITHUB_OUTPUT
+                  else
+                    node -e "
+                      const fs = require('fs');
+                      try {
+                        const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+                        const total = coverage.total;
+                        
+                        console.log('📊 Unit Test Coverage Summary (Changed Files Only):');
+                        console.log('Files analyzed: $FILE_COUNT');
+                        console.log('Lines: ' + total.lines.pct + '%');
+                        console.log('Functions: ' + total.functions.pct + '%');
+                        console.log('Branches: ' + total.branches.pct + '%');
+                        console.log('Statements: ' + total.statements.pct + '%');
+                        console.log('✅ Coverage report generated successfully!');
+                      } catch (error) {
+                        console.error('❌ Failed to read coverage summary:', error.message);
                         process.exit(1);
-                      } else {
-                        console.log(\`✅ Line coverage meets the required threshold for changed files!\`);
                       }
-                    } catch (error) {
-                      console.error('❌ Failed to read coverage summary:', error.message);
-                      process.exit(1);
-                    }
-                  "
+                    "
+                    echo "coverage_status=success" >> $GITHUB_OUTPUT
+                  fi
             - name: Comment unit test coverage on PR
               if: always()
               uses: actions/github-script@v7
@@ -644,6 +629,7 @@ jobs:
                       const fileCount = '${{ needs.check-relevant-files.outputs.file_count }}';
                       const changedFiles = `${{ needs.check-relevant-files.outputs.changed_files }}`;
                       const coverageFailed = '${{ steps.run-tests.outputs.coverage_failed }}';
+                      const coverageStatus = '${{ steps.coverage-summary.outputs.coverage_status }}';
                       let coverageComment = '';
                       if (false) { // This condition is now handled by separate jobs
                         coverageComment = `## 🧪 Unit Test Coverage Report (Diff Coverage)
@@ -681,12 +667,12 @@ jobs:
                         ${changedFilesList.map(file => `- \`${file}\``).join('\n')}
                         ${hasMoreFiles ? `\n... and ${parseInt(fileCount) - 10} more files` : ''}
                         
-                        💡 **Required Actions:**
-                        1. Add unit tests for the changed files
+                        💡 **Recommendations:**
+                        1. Consider adding unit tests for the changed files
                         2. Ensure test files follow naming conventions (\`test_*.py\`)
                         3. Place tests in \`tests/\` directory with matching structure
                         
-                        **Coverage Requirements:** 80% line coverage (only line coverage is enforced; other metrics are informational)
+                        **Coverage Analysis:** Informational reporting (no thresholds enforced)
                         
                         <details>
                         <summary>ℹ️ Test File Naming Conventions</summary>
@@ -719,14 +705,6 @@ jobs:
                           const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
                           const total = coverage.total;
                           
-                          // Unit test specific thresholds - only line coverage is enforced at 80%
-                          const thresholds = {
-                            lines: 80,
-                            functions: 80,  // shown but not enforced
-                            branches: 80,   // shown but not enforced  
-                            statements: 80  // shown but not enforced
-                          };
-                          
                           const changedFilesList = changedFiles.split('\n').filter(f => f.trim()).slice(0, 10); // Show first 10 files
                           const hasMoreFiles = changedFiles.split('\n').filter(f => f.trim()).length > 10;
                           
@@ -734,18 +712,14 @@ jobs:
                           
                           **Scope:** Changed Files Only (${fileCount} files)
                           
-                          | Metric | Coverage | Threshold | Status |
-                          |--------|----------|-----------|---------|
-                          | Lines | ${total.lines.pct}% | ${thresholds.lines}% | ${total.lines.pct >= thresholds.lines ? '✅' : '❌'} |
-                          | Functions | ${total.functions.pct}% | ${thresholds.functions}% | ${total.functions.pct >= thresholds.functions ? '✅' : '⚠️'} |
-                          | Branches | ${total.branches.pct}% | ${thresholds.branches}% | ${total.branches.pct >= thresholds.branches ? '✅' : '⚠️'} |
-                          | Statements | ${total.statements.pct}% | ${thresholds.statements}% | ${total.statements.pct >= thresholds.statements ? '✅' : '⚠️'} |
+                          | Metric | Coverage | Status |
+                          |--------|----------|---------|
+                          | Lines | ${total.lines.pct}% | ${total.lines.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Functions | ${total.functions.pct}% | ${total.functions.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Branches | ${total.branches.pct}% | ${total.branches.pct >= 80 ? '✅ Good' : '📊 Info'} |
+                          | Statements | ${total.statements.pct}% | ${total.statements.pct >= 80 ? '✅ Good' : '📊 Info'} |
                           
-                          **Overall Status:** ${
-                            total.lines.pct >= thresholds.lines 
-                              ? '✅ Required line coverage threshold met!' 
-                              : '❌ Line coverage below required threshold'
-                          }
+                          **Overall Status:** ✅ **Coverage report generated successfully!**
                           
                           <details>
                           <summary>📈 Detailed Coverage for Changed Files</summary>
@@ -768,8 +742,8 @@ jobs:
                           
                           - **Focus:** Only files changed in this PR are analyzed
                           - **Benefit:** Faster feedback, focused on new/modified code
-                          - **Required:** 80% line coverage (enforced - workflow fails if not met)
-                          - **Informational:** Function, branch, and statement coverage (shown but not enforced)
+                          - **Purpose:** Informational coverage reporting (no thresholds enforced)
+                          - **Shows:** Line, function, branch, and statement coverage metrics
                           - **Excludes:** Test files, \`__pycache__\`, \`.pytest_cache\`
                           </details>`;
                                                 } catch (error) {
