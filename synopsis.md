@@ -10,8 +10,6 @@ The architecture is built on a modern, scalable stack, leveraging microservices,
 
 This phase is initiated when a user installs the AI Code Reviewer GitHub App and grants it access to their repositories. The goal of this phase is to build a comprehensive, searchable knowledge base of the codebase.
 
-![Context/Repo Setup Phase](https://user-images.githubusercontent.com/12345/67890.png)  <!-- Placeholder for the diagram -->
-
 ### 2.1. Onboarding Flow
 
 1.  **GitHub App Installation**: A user installs the GitHub App, initiating the onboarding process.
