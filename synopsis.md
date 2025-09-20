@@ -20,6 +20,8 @@ This phase is initiated when a user installs the AI Code Reviewer GitHub App and
 
 ### 2.2. Repository Indexing
 
+<img width="1345" height="305" alt="image" src="https://github.com/user-attachments/assets/7d6aaced-fea8-43c4-b5c7-9031aa7c639b" />
+
 Once a repository is selected, a durable, long-running indexing process is started, orchestrated by Temporal.
 
 1.  **Clone Repository**: The latest version of the repository is cloned to a temporary worker environment.
@@ -34,9 +36,9 @@ This indexing process creates a rich, multi-faceted representation of the codeba
 
 ## 3. Phase 2: PR Review Processing
 
-This phase is triggered whenever a user opens a new pull request or pushes new commits to an existing one. The system uses the indexed knowledge of the repository to provide a detailed, line-by-line review.
+<img width="1367" height="537" alt="image" src="https://github.com/user-attachments/assets/13f0ff2e-d35c-4bab-952d-4fbe4520ae11" />
 
-![PR Review Processing Design](https://user-images.githubusercontent.com/12345/67891.png) <!-- Placeholder for the diagram -->
+This phase is triggered whenever a user opens a new pull request or pushes new commits to an existing one. The system uses the indexed knowledge of the repository to provide a detailed, line-by-line review.
 
 ### 3.1. Workflow
 
