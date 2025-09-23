@@ -1,9 +1,14 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from src.core.config import settings
+from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-engine = create_engine(settings.database_url)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg2://postgres:postgres@localhost:5432/ai_code_reviewer"
+)
+engine = create_engine(DATABASE_URL, echo=True, future=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
 def get_db():
     db = SessionLocal()
