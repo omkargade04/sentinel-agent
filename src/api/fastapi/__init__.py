@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from .routes import register_routes
 
 
@@ -11,5 +11,7 @@ class FastAPIApp:
         return self.app
     
     def __register_routes(self):
-        register_routes(self.app)
+        api_router = APIRouter(prefix="/api")
+        register_routes(api_router)
+        self.app.include_router(api_router)
         
