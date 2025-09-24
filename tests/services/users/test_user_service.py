@@ -48,6 +48,7 @@ class TestUserService:
         # Mock the helper methods
         self.mock_helpers._user_exists.return_value = None
         self.mock_helpers._create_supabase_user.return_value = {
+            "status": "success",
             "supabase_user_id": "fake-uuid",
             "access_token": "fake-access-token",
             "refresh_token": "fake-refresh-token"
@@ -114,6 +115,7 @@ class TestUserService:
             "email": self.test_email
         }
         self.mock_helpers._authenticate_with_supabase.return_value = {
+            "status": "success",
             "access_token": "login-access-token",
             "refresh_token": "login-refresh-token"
         }
@@ -206,7 +208,7 @@ class TestUserService:
         mock_user.user_id = "user-uuid-123"
         mock_user.email = self.test_email
         mock_user.created_at = datetime.now(timezone.utc)
-        mock_user.last_login = datetime.now(timezone.utc)
+        mock_user.updated_at = datetime.now(timezone.utc)
         
         # Act
         result = self.user_service.me(mock_user)
@@ -216,4 +218,4 @@ class TestUserService:
         assert result["user_id"] == str(mock_user.user_id)
         assert result["email"] == mock_user.email
         assert "created_at" in result
-        assert "last_login" in result
+        assert "updated_at" in result
