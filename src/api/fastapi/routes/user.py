@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Response, Cookie
 from typing import Optional
 
-from src.api.fastapi.middlewares.auth import IsAuthenticated
+from src.api.fastapi.middlewares.auth import get_current_user
 from src.models.db.users import User
 from src.models.schemas.users import UserLogin, UserRegister
 from src.services.users.user_service import UserService
@@ -47,7 +47,12 @@ async def register(
         token_data["access_token"],
         token_data["refresh_token"]
     )
-    return {"status": "success", "message": token_data["message"]}
+    return {
+        "status": "success", 
+        "access_token": token_data["access_token"],
+        "refresh_token": token_data["refresh_token"],
+        "message": token_data["message"]
+    }
 
 
 @router.post("/login")
@@ -66,7 +71,12 @@ async def login(
         token_data["access_token"],
         token_data["refresh_token"]
     )
-    return {"status": "success", "message": "Logged in successfully"}
+    return {
+        "status": "success", 
+        "access_token": token_data["access_token"], 
+        "refresh_token": token_data["refresh_token"], 
+        "message": "Logged in successfully"
+    }
 
 
 @router.post("/refresh")
@@ -90,7 +100,7 @@ async def refresh(
 
 @router.get("/me")
 async def me(
-    authenticated_user: User = Depends(IsAuthenticated),
+    authenticated_user: User = Depends(get_current_user),
     user_service: UserService = Depends(UserService),
 ):
     """
@@ -102,7 +112,7 @@ async def me(
 async def logout(
     response: Response,
     user_service: UserService = Depends(UserService),
-    authenticated_user: User = Depends(IsAuthenticated),
+    authenticated_user: User = Depends(get_current_user),
 ):
     """
     Logout the currently authenticated user.

@@ -8,6 +8,7 @@ class User(Base):
 
     user_id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     email = Column(String(255), nullable=False, unique=True)
+    supabase_user_id = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 

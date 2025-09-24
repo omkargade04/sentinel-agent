@@ -5,13 +5,15 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "sentinel-agent"
     
-    env: str = os.getenv("ENV", "development")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "http://localhost:5432")
-    try:
-        SUPABASE_URL: str = os.getenv("SUPABASE_URL", "daa s")
-        SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "asdas")
-    except Exception as e:
-        raise Exception(f"Error loading supabase credentials: {e}")
+    env: str = "development"
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/postgres"
+    
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://<project_name>.supabase.co")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "api_key")
+
+    postgres_db: str = "postgres"
+    postgres_user: str = "postgres" 
+    posgtres_password: str = "postgres"
     
     class Config:
         env_file = ".env"

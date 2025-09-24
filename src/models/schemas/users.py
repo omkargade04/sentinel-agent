@@ -14,6 +14,7 @@ class UserUpdate(BaseModel):
 
 class UserInDBBase(UserBase):
     user_id: UUID
+    supabase_user_id: UUID
     created_at: datetime
     updated_at: datetime
 
@@ -30,4 +31,4 @@ class UserLogin(BaseModel):
 
 class UserRegister(BaseModel):
     email: EmailStr = Field(..., description="The email of the user")
-    password: str = Field(..., description="The password of the user")    
+    password: str = Field(..., description="The password of the user")

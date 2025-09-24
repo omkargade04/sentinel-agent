@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    supabase_user_id UUID NOT NULL UNIQUE,
     email VARCHAR(255) NOT NULL UNIQUE,
+    supabase_user_id UUID NOT NULL UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -30,10 +30,14 @@ class UserService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="User with this email already exists."
             )
-
         auth_response = self.helpers._create_supabase_user(
             register_request.email, register_request.password
         )
+        if auth_response['status'] == 'failure':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Authentication error: {auth_response['message']}"
+            )
 
         self.helpers._create_local_user(register_request, auth_response['supabase_user_id'])
         return {
@@ -51,10 +55,14 @@ class UserService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found."
             )
-        
         auth_response = self.helpers._authenticate_with_supabase(
             login_request.email, login_request.password
         )
+        if auth_response['status'] == 'failure':
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Login failed: {auth_response['message']}"
+            )
         
         self.helpers._update_last_login(login_request.email)
 
@@ -102,7 +110,7 @@ class UserService:
             "user_id": str(current_user.user_id),
             "email": current_user.email,
             "created_at": current_user.created_at,
-            "last_login": current_user.last_login
+            "updated_at": current_user.updated_at
         }
 
     def logout(self, current_user: User) -> dict:

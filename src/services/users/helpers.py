@@ -31,22 +31,32 @@ class UserHelpers:
                 "password": password,
             })
             
-            if auth_response.error:
+            if not hasattr(auth_response, 'user') or not auth_response.user:
                 return {
                     "status": "failure", 
-                    "message": f"Auth error: {auth_response.error.message}"
+                    "message": "Supabase authentication failed - invalid response structure"
                 }
             
+            if not hasattr(auth_response, 'session') or not auth_response.session:
+                logger.info(f"User created but email confirmation required for: {auth_response.user.email}")
+                return {
+                    "status": "success", 
+                    "supabase_user_id": auth_response.user.id,
+                    "message": "User created successfully. Please check your email for confirmation.",
+                    "requires_confirmation": True
+                }
+                
+            logger.info(f"Auth response successful for user: {auth_response.user.email}")
             return {
                 "status": "success",
                 "supabase_user_id": auth_response.user.id,
                 "access_token": auth_response.session.access_token,
                 "refresh_token": auth_response.session.refresh_token,
-                "token_expires_at": auth_response.session.expires_at
             }
             
         except Exception as e:
-            return {"status": "failure", "message": f"Supabase error: {str(e)}"}
+            logger.error(f"Supabase registration error: {e}")
+            return {"status": "failure", "message": f"Authentication service error: {str(e)}"}
 
     def _create_local_user(self, register_request: UserRegister, supabase_user_id: str) -> dict:
         """Create user record in local database"""
@@ -81,18 +91,28 @@ class UserHelpers:
                 "password": password
             })
             
-            if auth_response.error:
-                return {"status": "failure", "message": "Invalid credentials"}
+            if not hasattr(auth_response, 'user') or not auth_response.user:
+                return {
+                    "status": "failure", 
+                    "message": "Invalid credentials"
+                }
             
+            if not hasattr(auth_response, 'session') or not auth_response.session:
+                return {
+                    "status": "failure", 
+                    "message": "Authentication failed - no session created"
+                }
+            
+            logger.info(f"Login successful for user: {auth_response.user.email}")
             return {
                 "status": "success",
                 "access_token": auth_response.session.access_token,
                 "refresh_token": auth_response.session.refresh_token,
-                "token_expires_at": auth_response.session.expires_at
             }
             
         except Exception as e:
-            return {"status": "failure", "message": f"Authentication error: {str(e)}"}
+            logger.error(f"Supabase login error: {e}")
+            return {"status": "failure", "message": "Invalid credentials"}
 
     def _update_last_login(self, email: str) -> None:
         """Update user's last login timestamp"""
@@ -103,4 +123,4 @@ class UserHelpers:
     
     def _logout(self, current_user: User) -> None:
         """Logout the currently authenticated user"""
-        self.supabase.auth.sign_out(current_user.supabase_user_id)
+        self.supabase.auth.sign_out()
