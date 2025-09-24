@@ -15,6 +15,10 @@ opentelemetry-api = "^1.37.0"
 opentelemetry-sdk = "^1.37.0"
 opentelemetry-exporter-otlp = "^1.37.0"
 python-json-logger = "^3.3.0"
+pydantic = "^2.11.9"
+sqlalchemy = "^2.0.43"
+pgvector = "^0.4.1"
+pydantic-settings = "^2.10.1"
 
 
 [tool.poetry.group.dev.dependencies]
