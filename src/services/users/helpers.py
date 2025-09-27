@@ -14,14 +14,22 @@ class UserHelpers:
     
     def _user_exists(self, email: str) -> bool:
         """Check if a user with the given email exists in the local database."""
-        user = self.db.query(User).filter(User.email == email).first()
-        if not user:
-            return None
-        
-        return {
-            "user_id": str(user.user_id),
-            "email": user.email
-        }
+        try:    
+            user = self.db.query(User).filter(User.email == email).first()
+            if not user:
+                return None
+            return {
+                "user_id": str(user.user_id),
+                "email": user.email
+            }
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            return {"status": "failure", "message": f"Database error: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Error checking if user exists: {e}")
+            return {"status": "failure", "message": "Error checking if user exists"}
+        finally:
+            self.db.close()
 
     def _create_supabase_user(self, email: str, password: str) -> dict:
         """Create user in Supabase Auth"""
@@ -82,7 +90,9 @@ class UserHelpers:
         except SQLAlchemyError as e:
             self.db.rollback()
             return {"status": "failure", "message": f"Database error: {str(e)}"}
-
+        finally:
+            self.db.close()
+            
     def _authenticate_with_supabase(self, email: str, password: str) -> dict:
         """Authenticate user with Supabase"""
         try:
@@ -116,10 +126,20 @@ class UserHelpers:
 
     def _update_last_login(self, email: str) -> None:
         """Update user's last login timestamp"""
-        user = self.db.query(User).filter(User.email == email).first()
-        if user:
-            user.updated_at = datetime.datetime.now(timezone.utc)
-            self.db.commit()
+        try:
+            user = self.db.query(User).filter(User.email == email).first()
+            if user:
+                user.updated_at = datetime.datetime.now(timezone.utc)
+                self.db.commit()
+                self.db.refresh(user)
+        except SQLAlchemyError as e:
+            self.db.rollback()
+            return {"status": "failure", "message": f"Database error: {str(e)}"}
+        except Exception as e:
+            logger.error(f"Error updating last login: {e}")
+            return {"status": "failure", "message": "Error updating last login"}
+        finally:
+            self.db.close()
     
     def _logout(self, current_user: User) -> None:
         """Logout the currently authenticated user"""

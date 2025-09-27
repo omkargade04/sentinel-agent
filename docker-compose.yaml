@@ -10,6 +10,8 @@ services:
       - postgres
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
+    networks:
+      - app-network
 
   postgres:
     container_name: postgres
@@ -23,6 +25,24 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./src/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ngrok
+    ports:
+      - "4040:4040"
+    environment:
+      - NGROK_AUTHTOKEN=33H6VQnfcMYEYGFwiSmY84mXZxw_2uqc42sitRhVYJJTMN3Li
+    command: http app:8000
+    depends_on:
+      - app
+    networks:
+      - app-network
 
 volumes:
   postgres_data:
+
+networks:
+  app-network:

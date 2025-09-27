@@ -10,20 +10,9 @@ CREATE TABLE IF NOT EXISTS github_installations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     installation_id BIGINT NOT NULL UNIQUE,
     github_account_id BIGINT NOT NULL,
+    github_account_username VARCHAR(255) NOT NULL,
     github_account_type VARCHAR(255) NOT NULL,
-    user_id UUID REFERENCES users(user_id) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS github_credentials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    installation_id BIGINT REFERENCES github_installations(installation_id) NOT NULL,
-    credential_type VARCHAR DEFAULT 'installation',
-    encrypted_token TEXT NOT NULL,
-    token_expires_at TIMESTAMP NOT NULL,
-    scope TEXT[],
-    is_active BOOLEAN DEFAULT TRUE,
+    user_id UUID REFERENCES users(user_id) NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -32,18 +21,11 @@ CREATE TABLE IF NOT EXISTS repositories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     installation_id BIGINT REFERENCES github_installations(installation_id) NOT NULL,
     github_repo_id BIGINT NOT NULL,
+    github_repo_name VARCHAR(255) NOT NULL,
     full_name VARCHAR(255) NOT NULL,
     default_branch VARCHAR(255) NOT NULL,
     private BOOLEAN DEFAULT FALSE,
     last_synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS repository_settings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    repository_id UUID REFERENCES repositories(id) NOT NULL,
-    settings JSONB NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
