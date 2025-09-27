@@ -19,6 +19,9 @@ pydantic = "^2.11.9"
 sqlalchemy = "^2.0.43"
 pgvector = "^0.4.1"
 pydantic-settings = "^2.10.1"
+email-validator = "^2.3.0"
+supabase = "^2.20.0"
+psycopg2-binary = "^2.9.9"
 
 
 [tool.poetry.group.dev.dependencies]
