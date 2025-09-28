@@ -42,7 +42,8 @@ async def github_webhook(
     try:
         body_bytes = await request.body()
         
-        webhook_secret = getattr(settings, 'GITHUB_WEBHOOK_SECRET', None)
+        webhook_secret =settings.GITHUB_WEBHOOK_SECRET if settings.GITHUB_WEBHOOK_SECRET else None
+
         if webhook_secret and not github_middleware.verify_webhook_signature(body_bytes, x_hub_signature_256, webhook_secret):
             logger.warning("Invalid webhook signature")
             raise HTTPException(status_code=401, detail="Invalid signature")

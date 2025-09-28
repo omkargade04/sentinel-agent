@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     env: str = "development"
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/postgres"
     
-    GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "1234567890")
+    GITHUB_APP_ID: str = os.getenv("github_app_id", "1234567890")
     GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "1234567890")
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "1234567890")
     GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "Iv23lijZrmdlLUMbgvCs")

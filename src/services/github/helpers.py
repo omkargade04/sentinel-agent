@@ -14,7 +14,7 @@ class GithubHelpers:
         """Generate JWT token for GitHub App authentication"""
         try:
             app_id = getattr(settings, 'GITHUB_APP_ID', None)
-            private_key = getattr(settings, 'GITHUB_PRIVATE_KEY', None)
+            private_key = getattr(settings, 'GITHUB_APP_PRIVATE_KEY', None)
             
             if not app_id or not private_key:
                 raise ValueError("GitHub App ID and Private Key must be configured")

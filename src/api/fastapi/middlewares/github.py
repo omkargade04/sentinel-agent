@@ -1,12 +1,11 @@
 import hashlib
 import hmac
 
-
 class GithubMiddleware:
     def __init__(self):
         pass
 
-    def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
+    def verify_webhook_signature(self, payload: bytes, signature: str, secret: str) -> bool:
         """Verify GitHub webhook signature"""
         if not signature:
             return False
