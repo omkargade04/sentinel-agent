@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 from src.models.db.github_installations import GithubInstallation
 from src.models.db.repositories import Repository
 from src.core.database import SessionLocal
+from src.models.db.users import User
 from src.utils.logging.otel_logger import logger
 
 class InstallationService:
-    def __init__(self):
+    def __init__(self, current_user: User):
+        self.current_user = current_user
         pass
     
     async def process_installation_created(self, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -26,7 +28,6 @@ class InstallationService:
             
             logger.info(f"Processing installation created for account: {github_account_username}")
             
-            # Check if installation already exists
             existing_installation = db.query(GithubInstallation).filter(
                 GithubInstallation.installation_id == installation_id
             ).first()
@@ -38,23 +39,19 @@ class InstallationService:
                     "message": "Installation already exists",
                     "installation_id": installation_id
                 }
-            
-            # Create new installation record
-            # Note: We don't have user_id from webhook, this needs to be handled differently
-            # For now, we'll create the installation without user_id and link it later
+
             github_installation = GithubInstallation(
                 installation_id=installation_id,
                 github_account_id=github_account_id,
                 github_account_type=github_account_type,
                 github_account_username=github_account_username,
-                user_id=None  # Will be linked when user logs in
+                user_id=self.current_user.user_id
             )
             
             db.add(github_installation)
             db.commit()
             db.refresh(github_installation)
             
-            # Process repositories
             repo_count = await self._process_repositories(db, repositories, installation_id, "add")
             
             logger.info(f"Installation {installation_id} created with {repo_count} repositories")
@@ -85,7 +82,6 @@ class InstallationService:
             
             logger.info(f"Processing installation deletion: {installation_id}")
             
-            # Find and delete installation
             installation = db.query(GithubInstallation).filter(
                 GithubInstallation.installation_id == installation_id
             ).first()
@@ -97,12 +93,10 @@ class InstallationService:
                     "message": "Installation not found"
                 }
             
-            # Delete associated repositories
             deleted_repos = db.query(Repository).filter(
                 Repository.installation_id == installation_id
             ).delete()
             
-            # Delete installation
             db.delete(installation)
             db.commit()
             
@@ -132,7 +126,6 @@ class InstallationService:
         for repo_data in repositories:
             try:
                 if action == "add":
-                    # Check if repository already exists
                     existing_repo = db.query(Repository).filter(
                         Repository.github_repo_id == repo_data["id"]
                     ).first()
@@ -141,7 +134,6 @@ class InstallationService:
                         logger.warning(f"Repository {repo_data['full_name']} already exists")
                         continue
                     
-                    # Create new repository
                     repository = Repository(
                         installation_id=installation_id,
                         github_repo_id=repo_data["id"],
@@ -155,7 +147,6 @@ class InstallationService:
                     count += 1
                     
                 elif action == "remove":
-                    # Remove repository
                     deleted = db.query(Repository).filter(
                         Repository.github_repo_id == repo_data["id"]
                     ).delete()
@@ -169,7 +160,8 @@ class InstallationService:
         return count
 
 class InstallationRepositoriesService:
-    def __init__(self):
+    def __init__(self, current_user: User):
+        self.current_user = current_user
         pass
     
     async def process_repositories_changed(self, body: Dict[str, Any], action: str) -> Dict[str, Any]:
@@ -180,7 +172,6 @@ class InstallationRepositoriesService:
             
             logger.info(f"Processing repositories {action} for installation: {installation_id}")
             
-            # Verify installation exists
             installation = db.query(GithubInstallation).filter(
                 GithubInstallation.installation_id == installation_id
             ).first()
@@ -193,14 +184,14 @@ class InstallationRepositoriesService:
             
             if action == "added":
                 repositories_added = body.get("repositories_added", [])
-                installation_service = InstallationService()
+                installation_service = InstallationService(self.current_user)
                 total_processed = await installation_service._process_repositories(
                     db, repositories_added, installation_id, "add"
                 )
                 
             elif action == "removed":
                 repositories_removed = body.get("repositories_removed", [])
-                installation_service = InstallationService()
+                installation_service = InstallationService(self.current_user)
                 total_processed = await installation_service._process_repositories(
                     db, repositories_removed, installation_id, "remove"
                 )

@@ -34,7 +34,7 @@ services:
     ports:
       - "4040:4040"
     environment:
-      - NGROK_AUTHTOKEN=33H6VQnfcMYEYGFwiSmY84mXZxw_2uqc42sitRhVYJJTMN3Li
+      - NGROK_AUTHTOKEN=$NGROK_AUTHTOKEN
     command: http app:8000
     depends_on:
       - app

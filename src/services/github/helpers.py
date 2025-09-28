@@ -13,22 +13,19 @@ class GithubHelpers:
     def generate_jwt_token(self) -> str:
         """Generate JWT token for GitHub App authentication"""
         try:
-            # Get GitHub App credentials from settings
             app_id = getattr(settings, 'GITHUB_APP_ID', None)
             private_key = getattr(settings, 'GITHUB_PRIVATE_KEY', None)
             
             if not app_id or not private_key:
                 raise ValueError("GitHub App ID and Private Key must be configured")
             
-            # Create JWT payload
             now = int(time.time())
             payload = {
-                'iat': now,  # Issued at time
-                'exp': now + (10 * 60),  # Expires in 10 minutes
-                'iss': app_id  # Issuer (GitHub App ID)
+                'iat': now,
+                'exp': now + (10 * 60),
+                'iss': app_id
             }
             
-            # Generate JWT token
             token = jwt.encode(payload, private_key, algorithm='RS256')
             
             logger.info("Generated JWT token for GitHub App authentication")
@@ -54,10 +51,8 @@ class GithubHelpers:
                     required_fields.append("repositories_removed")
                     
             else:
-                # For other event types, basic validation
                 required_fields = ["action"]
             
-            # Check if all required fields are present
             for field in required_fields:
                 if field not in payload:
                     logger.warning(f"Missing required field '{field}' in {event_type} webhook payload")
