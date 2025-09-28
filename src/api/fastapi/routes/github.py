@@ -5,35 +5,66 @@ import json
 from typing import Optional
 from src.api.fastapi.middlewares.github import GithubMiddleware
 from src.utils.logging.otel_logger import logger
-from src.services.github.github_factory import GithubFactory
+from src.services.github.github_service import GithubService
 from src.core.config import settings
-from src.models.db.users import User
 
 router = APIRouter(
     prefix="/github",
     tags=["Github"],
 )
- 
+
+@router.get("/auth")
+async def github_auth(
+    github_service: GithubService = Depends(GithubService)
+):
+    """Handle GitHub OAuth authentication"""
+    return github_service.handle_auth()
+
 @router.get("/callback")
 async def github_callback(
+    request: Request,
     code: Optional[str] = None, 
-    installation_id: Optional[str] = None,
-    github_service: GithubFactory = Depends(GithubFactory)
+    state: Optional[str] = None,
+    github_service: GithubService = Depends(GithubService)
 ):
-    """Handle GitHub App installation callback"""
-    logger.info(f"GitHub callback received - code: {code}, installation_id: {installation_id}")
+    """Handle GitHub OAuth callback"""
     
-    if not code or not installation_id:
+    if not code or not state:
         raise HTTPException(status_code=400, detail="Missing required parameters")
     
-    return github_service.handle_callback(code, installation_id)
+    return await github_service.handle_callback(code, state)
+
+@router.get("/setup")
+async def github_setup(
+    installation_id: Optional[str] = None,
+    setup_action: Optional[str] = None,
+    state: Optional[str] = None
+):
+    """
+    Handle GitHub App installation setup callback
+    
+    This endpoint is called by GitHub after a user completes the installation.
+    GitHub will redirect here if you set this URL as the "Setup URL" in your GitHub App settings.
+    """
+    if not installation_id:
+        logger.warning("No installation_id provided in setup callback")
+        return {
+            "status": "error",
+            "message": "Installation ID not provided"
+        }
+        
+    return {
+        "status": "success",
+        "message": "GitHub installation complete! You can now close this window and return to the application.",
+        "installation_id": installation_id
+    }
 
 @router.post("/events")
 async def github_webhook(
     request: Request,
     x_github_event: Optional[str] = Header(None),
     x_hub_signature_256: Optional[str] = Header(None),
-    github_service: GithubFactory = Depends(GithubFactory)
+    github_service: GithubService = Depends(GithubService)
 ):
     """Handle GitHub webhook events"""
     github_middleware = GithubMiddleware()
