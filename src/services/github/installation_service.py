@@ -6,12 +6,10 @@ from sqlalchemy.orm import Session
 from src.models.db.github_installations import GithubInstallation
 from src.models.db.repositories import Repository
 from src.core.database import SessionLocal
-from src.models.db.users import User
 from src.utils.logging.otel_logger import logger
 
 class InstallationService:
-    def __init__(self, current_user: User):
-        self.current_user = current_user
+    def __init__(self):
         pass
     
     async def process_installation_created(self, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -45,7 +43,7 @@ class InstallationService:
                 github_account_id=github_account_id,
                 github_account_type=github_account_type,
                 github_account_username=github_account_username,
-                user_id=self.current_user.user_id
+                user_id=None
             )
             
             db.add(github_installation)
@@ -160,8 +158,7 @@ class InstallationService:
         return count
 
 class InstallationRepositoriesService:
-    def __init__(self, current_user: User):
-        self.current_user = current_user
+    def __init__(self):
         pass
     
     async def process_repositories_changed(self, body: Dict[str, Any], action: str) -> Dict[str, Any]:
@@ -184,14 +181,14 @@ class InstallationRepositoriesService:
             
             if action == "added":
                 repositories_added = body.get("repositories_added", [])
-                installation_service = InstallationService(self.current_user)
+                installation_service = InstallationService()
                 total_processed = await installation_service._process_repositories(
                     db, repositories_added, installation_id, "add"
                 )
                 
             elif action == "removed":
                 repositories_removed = body.get("repositories_removed", [])
-                installation_service = InstallationService(self.current_user)
+                installation_service = InstallationService()
                 total_processed = await installation_service._process_repositories(
                     db, repositories_removed, installation_id, "remove"
                 )

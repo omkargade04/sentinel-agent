@@ -1,5 +1,4 @@
 from typing import Dict, Any
-from src.models.db.users import User
 from src.services.github.installation_service import InstallationRepositoriesService, InstallationService
 from src.utils.logging.otel_logger import logger
 
@@ -17,7 +16,7 @@ class GithubFactory:
                 "status": "success", 
                 "message": "🎉 Sentinel has been successfully installed! Your repositories are being indexed.",
                 "installation_id": installation_id,
-                "redirect_url": f"/dashboard?installation_id={installation_id}",
+                "redirect_url": f"/callback?installation_id={installation_id}",
                 "next_steps": [
                     "Your repositories are being indexed in the background",
                     "You'll receive notifications when indexing is complete", 
@@ -31,7 +30,7 @@ class GithubFactory:
                 "message": "There was an issue with the installation. Please try again or contact support."
             }
         
-    async def process_webhook(self, body: Dict[str, Any], current_user: User, event_type: str) -> Dict[str, Any]:
+    async def process_webhook(self, body: Dict[str, Any], event_type: str) -> Dict[str, Any]:
         """Process GitHub webhook events"""
         try:
             logger.info(f"Processing GitHub webhook event: {event_type}")
@@ -39,10 +38,10 @@ class GithubFactory:
             if event_type == "installation":
                 action = body.get("action")
                 if action == "created":
-                    installation_service = InstallationService(current_user)
+                    installation_service = InstallationService()
                     return await installation_service.process_installation_created(body)
                 elif action == "deleted":
-                    installation_service = InstallationService(current_user)
+                    installation_service = InstallationService()
                     return await installation_service.process_installation_deleted(body)
                 else:
                     logger.warning(f"Unhandled installation action: {action}")
@@ -50,7 +49,7 @@ class GithubFactory:
             elif event_type == "installation_repositories":
                 action = body.get("action")
                 if action in ["added", "removed"]:
-                    installation_repositories_service = InstallationRepositoriesService(current_user)
+                    installation_repositories_service = InstallationRepositoriesService()
                     return await installation_repositories_service.process_repositories_changed(body, action)
                 else:
                     logger.warning(f"Unhandled installation_repositories action: {action}")
