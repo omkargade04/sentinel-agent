@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "1234567890")
     GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
     GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
-    
+    GITHUB_OAUTH_CLIENT_ID: str = os.getenv("GITHUB_OAUTH_CLIENT_ID", "")
+    GITHUB_OAUTH_CLIENT_SECRET: str = os.getenv("GITHUB_OAUTH_CLIENT_SECRET", "")
+    GITHUB_REDIRECT_URI: str = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:8000/github/callback")
+    GITHUB_APP_NAME: str = os.getenv("GITHUB_APP_NAME", "demo-sen-1")
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://<project_name>.supabase.co")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "api_key")
 
