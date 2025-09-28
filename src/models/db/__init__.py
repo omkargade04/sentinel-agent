@@ -1,9 +1,7 @@
 # Import all models to ensure SQLAlchemy can resolve relationships
 from .users import User
 from .github_installations import GithubInstallation
-from .github_credentials import GithubCredential
 from .repositories import Repository
-from .repository_settings import RepositorySettings
 from .pull_requests import PullRequest
 from .pr_file_changes import PRFileChange
 from .review_runs import ReviewRun
@@ -20,10 +18,8 @@ from .symbol_edges import SymbolEdge
 # Export all models
 __all__ = [
     'User',
-    'GithubInstallation', 
-    'GithubCredential',
+    'GithubInstallation',
     'Repository',
-    'RepositorySettings',
     'PullRequest',
     'PRFileChange',
     'ReviewRun',

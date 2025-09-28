@@ -6,6 +6,7 @@ from typing import Optional
 class GithubInstallationBase(BaseModel):
     installation_id: int
     github_account_id: int
+    github_account_username: str
     github_account_type: str
     user_id: UUID
 
@@ -14,6 +15,7 @@ class GithubInstallationCreate(GithubInstallationBase):
 
 class GithubInstallationUpdate(BaseModel):
     github_account_id: Optional[int] = None
+    github_account_username: Optional[str] = None
     github_account_type: Optional[str] = None
 
 class GithubInstallationInDBBase(GithubInstallationBase):

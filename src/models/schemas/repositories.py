@@ -6,6 +6,7 @@ from typing import Optional
 class RepositoryBase(BaseModel):
     installation_id: int
     github_repo_id: int
+    github_repo_name: str
     full_name: str
     default_branch: str
     private: bool = False
@@ -14,6 +15,7 @@ class RepositoryCreate(RepositoryBase):
     pass
 
 class RepositoryUpdate(BaseModel):
+    github_repo_name: Optional[str] = None
     full_name: Optional[str] = None
     default_branch: Optional[str] = None
     private: Optional[bool] = None
