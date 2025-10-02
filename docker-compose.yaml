@@ -10,6 +10,22 @@ services:
       - postgres
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
+      - TEMPORAL_SERVER_URL=temporal:7233
+    networks:
+      - app-network
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: temporal-worker
+    command: poetry run python src/worker_repo_indexing.py
+    depends_on:
+      - postgres
+      - temporal
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
+      - TEMPORAL_SERVER_URL=temporal:7233
     networks:
       - app-network
 
@@ -28,6 +44,30 @@ services:
     networks:
       - app-network
 
+  temporal:
+    container_name: temporal
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"
+    environment:
+      - TEMPORALITE_DB_FILENAME=/data/temporal.db
+    volumes:
+      - temporal_data:/data
+    networks:
+      - app-network
+
+  temporal-ui:
+    container_name: temporal-ui
+    image: temporalio/web:latest
+    ports:
+      - "8233:8233"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      - temporal
+    networks:
+      - app-network
+
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok
@@ -43,6 +83,7 @@ services:
 
 volumes:
   postgres_data:
+  temporal_data:
 
 networks:
   app-network:

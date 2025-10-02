@@ -9,6 +9,8 @@ from src.models.db.users import User
 from sqlalchemy.orm import Session
 import secrets
 import httpx
+from src.utils.exception import AppException, BadRequestException
+
 
 class GithubService:
     def __init__(self, db: Session = Depends(get_db)):
@@ -31,10 +33,10 @@ class GithubService:
             return RedirectResponse(url=github_auth_url)
         except Exception as e:
             logger.error(f"Error generating GitHub auth URL: {str(e)}")
-            return {
-                "status": "error",
-                "message": "There was an issue with the authentication. Please try again or contact support."
-            }  
+            raise AppException(
+                status_code=500, 
+                message="There was an issue with the authentication. Please try again or contact support."
+            )  
     
     async def handle_callback(self, code: str, state: str) -> Dict[str, Any]:
         """Handle GitHub OAuth callback and store user"""
@@ -54,14 +56,14 @@ class GithubService:
                 
                 if response.status_code != 200:
                     logger.error(f"Failed to exchange code for token: {response.status_code} {response.text}")
-                    raise Exception("Failed to exchange authorization code")
+                    raise BadRequestException("Failed to exchange authorization code for an access token.")
                 
                 token_data = response.json()
                 
             access_token = token_data.get("access_token")
             if not access_token:
                 logger.error(f"No access token in response: {token_data}")
-                raise Exception("No access token received")
+                raise BadRequestException("No access token was received from GitHub.")
                 
             user_data = await self._get_user(access_token)
             
@@ -70,10 +72,13 @@ class GithubService:
             return RedirectResponse(url=github_installation_url)
         except Exception as e:
             logger.error(f"Error handling GitHub callback: {str(e)}")
-            return {
-                "status": "error",
-                "message": "There was an issue with the installation. Please try again or contact support."
-            }
+            # Re-raise as a generic AppException if it's not already one of our custom exceptions
+            if not isinstance(e, AppException):
+                raise AppException(
+                    status_code=500,
+                    message="An unexpected error occurred during the installation process."
+                )
+            raise e
         
     async def _get_user(self, access_token: str) -> Dict[str, Any]:
         """Get user from GitHub"""
@@ -84,7 +89,7 @@ class GithubService:
             )
             if user_response.status_code != 200:
                 logger.error(f"Failed to get user from GitHub: {user_response.status_code} {user_response.text}")
-                raise Exception(f"Failed to get user from GitHub: {user_response.status_code} {user_response.text}")
+                raise AppException(status_code=user_response.status_code, message="Failed to get user from GitHub.")
         user_data = user_response.json()
         return user_data
     
@@ -149,7 +154,4 @@ class GithubService:
             
         except Exception as e:
             logger.error(f"Error processing webhook {event_type}: {str(e)}")
-            return {
-                "status": "error",
-                "message": f"Failed to process webhook {event_type}"
-            }
+            raise AppException(status_code=500, message=f"Failed to process webhook {event_type}")

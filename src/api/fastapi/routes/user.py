@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, Cookie
+from fastapi import APIRouter, Depends, Request, Response, Cookie
 from typing import Optional
 
 from src.api.fastapi.middlewares.auth import get_current_user
@@ -13,22 +13,24 @@ router = APIRouter(
 
 
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="strict",
-        secure=True,
-        max_age=60 * 15,
-    )
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        samesite="strict",
-        secure=True,
-        max_age=60 * 60 * 24 * 7,
-    )
+    if access_token:
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,
+            samesite="strict",
+            secure=True,
+            max_age=60 * 15,
+        )
+    if refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            samesite="strict",
+            secure=True,
+            max_age=60 * 60 * 24 * 7,
+        )
 
 
 @router.post("/register")
@@ -42,16 +44,19 @@ async def register(
     On success, sets access and refresh tokens as HttpOnly cookies.
     """
     token_data = user_service.register(register_request)
+
+    # If registration requires email confirmation, tokens might not be present
+    if token_data.get("requires_confirmation"):
+        return token_data
+
     set_auth_cookies(
         response,
-        token_data["access_token"],
-        token_data["refresh_token"]
+        token_data.get("access_token"),
+        token_data.get("refresh_token")
     )
     return {
         "status": "success", 
-        "access_token": token_data["access_token"],
-        "refresh_token": token_data["refresh_token"],
-        "message": token_data["message"]
+        "message": token_data.get("message")
     }
 
 
@@ -68,13 +73,11 @@ async def login(
     token_data = user_service.login(login_request)
     set_auth_cookies(
         response,
-        token_data["access_token"],
-        token_data["refresh_token"]
+        token_data.get("access_token"),
+        token_data.get("refresh_token")
     )
     return {
         "status": "success", 
-        "access_token": token_data["access_token"], 
-        "refresh_token": token_data["refresh_token"], 
         "message": "Logged in successfully"
     }
 
@@ -92,22 +95,33 @@ async def refresh(
     token_data = user_service.refresh_token(refresh_token)
     set_auth_cookies(
         response,
-        token_data["access_token"],
-        token_data["refresh_token"]
+        token_data.get("access_token"),
+        token_data.get("refresh_token")
     )
     return {"status": "success", "message": "Tokens refreshed"}
 
 
-@router.get("/me")
-async def me(
+@router.get("/whoami")
+async def whoami(
     authenticated_user: User = Depends(get_current_user),
     user_service: UserService = Depends(UserService),
 ):
     """
     Get the profile for the currently authenticated user.
     """
-    return user_service.me(authenticated_user)
+    return user_service.whoami(authenticated_user)
 
+@router.post("/set-user-id-for-installation")
+async def set_user_id_for_installation(
+    request: Request,
+    authenticated_user: User = Depends(get_current_user),
+    user_service: UserService = Depends(UserService),
+):
+    """ 
+    Set the user ID for the installation.
+    """
+    return user_service.set_user_id_for_installation(authenticated_user, request)
+     
 @router.post('/logout')
 async def logout(
     response: Response,

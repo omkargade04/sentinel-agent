@@ -3,6 +3,8 @@ import time
 from src.utils.logging.otel_logger import logger
 from src.core.config import settings
 import httpx
+from src.utils.exception import AppException, UnauthorizedException
+
 
 class RepositoryHelpers:
     """Helper utilities for Repository integration"""
@@ -33,7 +35,7 @@ class RepositoryHelpers:
             
         except Exception as e:
             logger.error(f"Error generating JWT token: {str(e)}")
-            raise
+            raise AppException(status_code=500, message="Failed to generate JWT for repository authentication.")
     
     async def generate_installation_token(self, installation_id: int) -> str:
         """Generate installation token for Repository authentication"""
@@ -49,7 +51,7 @@ class RepositoryHelpers:
             
             if response.status_code != 201:
                 logger.error(f"Failed to generate installation token: {response.status_code} {response.text}")
-                raise Exception(f"Failed to generate installation token: {response.status_code} {response.text}")
+                raise UnauthorizedException(f"Failed to generate installation token for installation ID {installation_id}.")
             
             token = response.json()["token"]
             return token
