@@ -3,8 +3,8 @@ from .routes import register_routes
 
 
 class FastAPIApp:
-    def __init__(self):
-        self.app = FastAPI()
+    def __init__(self, lifespan=None):
+        self.app = FastAPI(lifespan=lifespan)
         self.__register_routes()
 
     def get_app(self):
