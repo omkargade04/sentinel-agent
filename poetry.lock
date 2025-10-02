@@ -936,6 +936,20 @@ files = [
 ]
 
 [[package]]
+name = "nexus-rpc"
+version = "1.1.0"
+description = "Nexus Python SDK"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "nexus_rpc-1.1.0-py3-none-any.whl", hash = "sha256:d1b007af2aba186a27e736f8eaae39c03aed05b488084ff6c3d1785c9ba2ad38"},
+    {file = "nexus_rpc-1.1.0.tar.gz", hash = "sha256:d65ad6a2f54f14e53ebe39ee30555eaeb894102437125733fb13034a04a44553"},
+]
+
+[package.dependencies]
+typing-extensions = ">=4.12.2"
+
+[[package]]
 name = "numpy"
 version = "2.3.3"
 description = "Fundamental package for array computing in Python"
@@ -1872,6 +1886,44 @@ httpx = {version = ">=0.26,<0.29", extras = ["http2"]}
 strenum = ">=0.4.15"
 
 [[package]]
+name = "temporalio"
+version = "1.18.1"
+description = "Temporal.io Python SDK"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "temporalio-1.18.1-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:748c0ec9f48aa1ab612a58fe516d9be28c1dd98194f560fd28a2ab09c6e2ca5e"},
+    {file = "temporalio-1.18.1-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:5a789e7c483582d6d7dd49e7d2d2730d82dc94d9342fe71be76fa67afa4e6865"},
+    {file = "temporalio-1.18.1-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a9f5cf75c4b887476a2b39d022a9c44c495f5eb1668087a022bd9258d3adddf9"},
+    {file = "temporalio-1.18.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f28a69394bf18b4a1c22a6a784d348e93482858c505d054570b278f0f5e13e9c"},
+    {file = "temporalio-1.18.1-cp39-abi3-win_amd64.whl", hash = "sha256:552b360f9ccdac8d5fc5d19c6578c2f6f634399ccc37439c4794aa58487f7fd5"},
+    {file = "temporalio-1.18.1.tar.gz", hash = "sha256:46394498f8822e61b3ce70d6735de7618f5af0501fb90f3f90f4b4f9e7816d77"},
+]
+
+[package.dependencies]
+nexus-rpc = "1.1.0"
+protobuf = ">=3.20,<7.0.0"
+types-protobuf = ">=3.20"
+typing-extensions = ">=4.2.0,<5"
+
+[package.extras]
+grpc = ["grpcio (>=1.48.2,<2)"]
+openai-agents = ["eval-type-backport (>=0.2.2)", "mcp (>=1.9.4,<2)", "openai-agents (>=0.3,<0.4)"]
+opentelemetry = ["opentelemetry-api (>=1.11.1,<2)", "opentelemetry-sdk (>=1.11.1,<2)"]
+pydantic = ["pydantic (>=2.0.0,<3)"]
+
+[[package]]
+name = "types-protobuf"
+version = "6.32.1.20250918"
+description = "Typing stubs for protobuf"
+optional = false
+python-versions = ">=3.9"
+files = [
+    {file = "types_protobuf-6.32.1.20250918-py3-none-any.whl", hash = "sha256:22ba6133d142d11cc34d3788ad6dead2732368ebb0406eaa7790ea6ae46c8d0b"},
+    {file = "types_protobuf-6.32.1.20250918.tar.gz", hash = "sha256:44ce0ae98475909ca72379946ab61a4435eec2a41090821e713c17e8faf5b88f"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -2031,4 +2083,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "9dee3ddf5e93299d049c894480a958ef9438caa4f44a69a6e7c5846fa3bb2445"
+content-hash = "1dc758b3296f355821a6f472af76d649bf91a7ee6e7f11e5b00d8888403f4052"

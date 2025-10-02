@@ -1,8 +1,10 @@
 import jwt
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from src.utils.logging.otel_logger import logger
 from src.core.config import settings
+from src.utils.exception import AppException, BadRequestException
+
 
 class GithubHelpers:
     """Helper utilities for GitHub integration"""
@@ -33,10 +35,11 @@ class GithubHelpers:
             
         except Exception as e:
             logger.error(f"Error generating JWT token: {str(e)}")
-            raise
+            raise AppException(status_code=500, message="Failed to generate JWT for GitHub App authentication.")
     
-    def validate_webhook_payload(self, payload: Dict[str, Any], event_type: str) -> bool:
+    def validate_webhook_payload(self, payload: Dict[str, Any], event_type: str):
         """Validate webhook payload structure"""
+        required_fields = []
         try:
             if event_type == "installation":
                 required_fields = ["action", "installation"]
@@ -51,18 +54,17 @@ class GithubHelpers:
                     required_fields.append("repositories_removed")
                     
             else:
-                required_fields = ["action"]
-            
+                return
+
             for field in required_fields:
                 if field not in payload:
-                    logger.warning(f"Missing required field '{field}' in {event_type} webhook payload")
-                    return False
-            
-            return True
-            
+                    raise BadRequestException(f"Missing required field '{field}' in {event_type} webhook payload")
+
         except Exception as e:
             logger.error(f"Error validating webhook payload: {str(e)}")
-            return False
+            if not isinstance(e, AppException):
+                raise AppException(status_code=500, message="An unexpected error occurred during payload validation.")
+            raise e
     
     def extract_repository_info(self, repo_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract and normalize repository information from GitHub API response"""
@@ -81,7 +83,7 @@ class GithubHelpers:
             }
         except KeyError as e:
             logger.error(f"Missing required repository field: {str(e)}")
-            raise ValueError(f"Invalid repository data: missing {str(e)}")
+            raise BadRequestException(f"Invalid repository data received from GitHub: missing key {str(e)}")
         except Exception as e:
             logger.error(f"Error extracting repository info: {str(e)}")
-            raise
+            raise AppException(status_code=500, message="Failed to extract repository information.")

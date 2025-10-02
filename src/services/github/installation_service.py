@@ -1,5 +1,4 @@
 from typing import Dict, Any, List
-from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -7,6 +6,8 @@ from src.models.db.github_installations import GithubInstallation
 from src.models.db.repositories import Repository
 from src.core.database import SessionLocal
 from src.utils.logging.otel_logger import logger
+from src.utils.exception import AppException, DuplicateResourceException, InstallationNotFoundError
+
 
 class InstallationService:
     def __init__(self):
@@ -32,11 +33,7 @@ class InstallationService:
             
             if existing_installation:
                 logger.warning(f"Installation {installation_id} already exists")
-                return {
-                    "status": "warning",
-                    "message": "Installation already exists",
-                    "installation_id": installation_id
-                }
+                raise DuplicateResourceException("Installation already exists")
 
             github_installation = GithubInstallation(
                 installation_id=installation_id,
@@ -64,11 +61,11 @@ class InstallationService:
         except SQLAlchemyError as e:
             db.rollback()
             logger.error(f"Database error processing installation: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+            raise AppException(status_code=500, detail="Database error processing installation")
         except Exception as e:
             db.rollback()
             logger.error(f"Error processing installation: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing installation: {str(e)}")
+            raise AppException(status_code=500, detail="Error processing installation")
         finally:
             db.close()
     
@@ -86,10 +83,7 @@ class InstallationService:
             
             if not installation:
                 logger.warning(f"Installation {installation_id} not found for deletion")
-                return {
-                    "status": "warning",
-                    "message": "Installation not found"
-                }
+                raise InstallationNotFoundError("Installation not found")
             
             deleted_repos = db.query(Repository).filter(
                 Repository.installation_id == installation_id
@@ -109,11 +103,11 @@ class InstallationService:
         except SQLAlchemyError as e:
             db.rollback()
             logger.error(f"Database error deleting installation: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+            raise AppException(status_code=500, detail="Database error deleting installation")
         except Exception as e:
             db.rollback()
             logger.error(f"Error deleting installation: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error deleting installation: {str(e)}")
+            raise AppException(status_code=500, detail="Error deleting installation")
         finally:
             db.close()
     
@@ -175,7 +169,7 @@ class InstallationRepositoriesService:
             
             if not installation:
                 logger.error(f"Installation {installation_id} not found")
-                raise HTTPException(status_code=404, detail="Installation not found")
+                raise InstallationNotFoundError("Installation not found")
             
             total_processed = 0
             
@@ -204,10 +198,10 @@ class InstallationRepositoriesService:
         except SQLAlchemyError as e:
             db.rollback()
             logger.error(f"Database error processing repositories: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+            raise AppException(status_code=500, detail="Database error processing repositories")
         except Exception as e:
             db.rollback()
             logger.error(f"Error processing repositories: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing repositories: {str(e)}")
+            raise AppException(status_code=500, detail="Error processing repositories")
         finally:
             db.close()

@@ -1,14 +1,17 @@
-import supabase
 from src.models.db.users import User
 from src.models.schemas.users import UserRegister, UserLogin
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Request
 from src.core.database import get_db
 from sqlalchemy.orm import Session
 from supabase import Client
-from src.core.config import settings
 from src.core.supabase_client import get_supabase_client
 from src.services.users.helpers import UserHelpers
-from src.utils.logging.otel_logger import logger
+from src.utils.exception import (
+    DuplicateResourceException,
+    UserNotFoundError,
+    UnauthorizedException,
+    BadRequestException
+)
 
 class UserService:
     def __init__(
@@ -26,23 +29,24 @@ class UserService:
         record in the local database.
         """
         if self.helpers._user_exists(register_request.email):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="User with this email already exists."
-            )
+            raise DuplicateResourceException("User with this email already exists.")
+
         auth_response = self.helpers._create_supabase_user(
             register_request.email, register_request.password
         )
-        if auth_response['status'] == 'failure':
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Authentication error: {auth_response['message']}"
-            )
 
         self.helpers._create_local_user(register_request, auth_response['supabase_user_id'])
+        
+        # Handle cases where email confirmation is required
+        if auth_response.get("requires_confirmation"):
+            return {
+                "message": auth_response["message"],
+                "requires_confirmation": True
+            }
+
         return {
-            "access_token": auth_response["access_token"],
-            "refresh_token": auth_response["refresh_token"],
+            "access_token": auth_response.get("access_token"),
+            "refresh_token": auth_response.get("refresh_token"),
             "message": "User registered successfully"
         }
 
@@ -51,18 +55,11 @@ class UserService:
         Handles user login by authenticating with Supabase.
         """
         if not self.helpers._user_exists(login_request.email):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found."
-            )
+            raise UserNotFoundError("User not found.")
+
         auth_response = self.helpers._authenticate_with_supabase(
             login_request.email, login_request.password
         )
-        if auth_response['status'] == 'failure':
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Login failed: {auth_response['message']}"
-            )
         
         self.helpers._update_last_login(login_request.email)
 
@@ -81,36 +78,41 @@ class UserService:
                 refresh_token=refresh_token
             )
             
-            if response.error:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=f"Could not refresh token: {response.error.message}",
-                )
+            if not response.session:
+                raise UnauthorizedException("Could not refresh token")
 
             return {
                 "access_token": response.session.access_token,
                 "refresh_token": response.session.refresh_token,
             }
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Invalid refresh token: {str(e)}",
-            )
+            raise UnauthorizedException(f"Invalid refresh token: {str(e)}")
 
-    def me(self, current_user: User) -> dict:
+    def whoami(self, current_user: User) -> dict:
         """
         Returns the profile of the currently authenticated user.
         """
         if not current_user:
-             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found."
-            )
+            raise UserNotFoundError("User not found.")
         return {
             "user_id": str(current_user.user_id),
             "email": current_user.email,
             "created_at": current_user.created_at,
             "updated_at": current_user.updated_at
+        }
+
+    def set_user_id_for_installation(self, current_user: User, request: Request) -> dict:
+        """
+        Set the user ID for the installation.
+        """
+        installation_id = request.query_params.get("installation_id")
+        if not installation_id:
+            raise BadRequestException("installation_id query parameter is required.")
+            
+        self.helpers._set_user_id_for_installation(current_user, installation_id)
+        return {
+            "status": "success",
+            "message": "User ID for installation set successfully"
         }
 
     def logout(self, current_user: User) -> dict:
