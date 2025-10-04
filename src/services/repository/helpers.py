@@ -4,31 +4,34 @@ from src.utils.logging.otel_logger import logger
 from src.core.config import settings
 import httpx
 from src.utils.exception import AppException, UnauthorizedException
+from sqlalchemy.orm import Session
+from fastapi import Depends
+from src.core.database import get_db
 
 
 class RepositoryHelpers:
     """Helper utilities for Repository integration"""
     
-    def __init__(self):
-        pass
+    def __init__(self, db: Session = Depends(get_db)):
+        self.db = db
     
     def generate_jwt_token(self) -> str:
         """Generate JWT token for Repository authentication"""
         try:
-            app_id = getattr(settings, 'GITHUB_APP_ID', None)
+            app_id: str = getattr(settings, 'GITHUB_APP_ID', None)
             private_key = getattr(settings, 'GITHUB_APP_PRIVATE_KEY', None)
             
             if not app_id or not private_key:
                 raise ValueError("GitHub App ID and Private Key must be configured")
             
-            now = int(time.time())
+            now: int = int(time.time())
             payload = {
                 'iat': now,
                 'exp': now + (10 * 60),
                 'iss': app_id
             }
             
-            token = jwt.encode(payload, private_key, algorithm='RS256')
+            token: str = jwt.encode(payload, private_key, algorithm='RS256')
             
             logger.info("Generated JWT token for Repository authentication")
             return token
@@ -39,8 +42,8 @@ class RepositoryHelpers:
     
     async def generate_installation_token(self, installation_id: int) -> str:
         """Generate installation token for Repository authentication"""
-        jwt = self.generate_jwt_token()
-        token_url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+        jwt: str = self.generate_jwt_token()
+        token_url: str = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
         
         async with httpx.AsyncClient() as client:
             headers = {
@@ -53,6 +56,6 @@ class RepositoryHelpers:
                 logger.error(f"Failed to generate installation token: {response.status_code} {response.text}")
                 raise UnauthorizedException(f"Failed to generate installation token for installation ID {installation_id}.")
             
-            token = response.json()["token"]
+            token: str = response.json()["token"]
             return token
        

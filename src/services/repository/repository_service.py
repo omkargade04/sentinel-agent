@@ -1,28 +1,33 @@
 from src.models.db.users import User
-from src.models.db.repositories import Repository
+from src.models.schemas.repositories import RepositoryRead, RepositoryCreate
 from src.utils.logging.otel_logger import logger
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from sqlalchemy.exc import SQLAlchemyError
 import httpx
 from src.services.repository.helpers import RepositoryHelpers
 from src.utils.exception import AppException, UserNotFoundError
-
+from sqlalchemy.orm import Session
+from fastapi import Depends
+from src.core.database import get_db
+from src.models.db.repositories import Repository
 
 class RepositoryService:
-    def __init__(self):
-        self.helpers = RepositoryHelpers()
+    def __init__(self, db: Session = Depends(get_db)):
+        self.db = db
+        self.helpers = RepositoryHelpers(db)
 
-    async def get_all_repositories(self, current_user: User) -> List[Dict[str, Any]]:
+    async def get_all_repositories(self, current_user: User) -> List[RepositoryRead]:
         """Get a list of all repositories from GitHub for the user's installation."""
         if not current_user.github_installations:
             raise UserNotFoundError("No GitHub installation found for the current user.")
             
-        installation_id = current_user.github_installations[0].installation_id
+        installation_id: int = current_user.github_installations[0].installation_id
+        
         try:
-            installation_token = await self.helpers.generate_installation_token(installation_id)
-            repositories = await self._fetch_all_repositories_from_github(installation_token)
-            return repositories
+            installation_token: str = await self.helpers.generate_installation_token(installation_id)
+            repositories_data = await self._fetch_all_repositories_from_github(installation_token)
             
+            return [RepositoryRead.model_validate(repo) for repo in repositories_data]
         except Exception as e:
             logger.error(f"Error getting all repositories for user {current_user.email}: {str(e)}")
             if not isinstance(e, AppException):
@@ -31,7 +36,7 @@ class RepositoryService:
         
     async def _fetch_all_repositories_from_github(self, installation_token: str) -> List[Dict[str, Any]]:
         """Get a list of all repositories from the GitHub API."""
-        repos_url = "https://api.github.com/installation/repositories"
+        repos_url: str = "https://api.github.com/installation/repositories"
         
         async with httpx.AsyncClient() as client:
             headers = {
@@ -50,7 +55,7 @@ class RepositoryService:
             repositories_data = response.json()
             return repositories_data.get("repositories", [])
         
-    async def get_user_selected_repositories(self, current_user: User) -> List[Repository]:
+    def get_user_selected_repositories(self, current_user: User) -> List[RepositoryRead]:
         """Get a list of user's repositories from our database."""
         if not current_user.github_installations:
             raise UserNotFoundError("No GitHub installation found for the current user.")
