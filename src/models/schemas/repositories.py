@@ -11,6 +11,9 @@ class RepositoryBase(BaseModel):
     default_branch: str
     private: bool = False
 
+class RepoRequest(RepositoryBase):
+    pass
+
 class RepositoryCreate(RepositoryBase):
     pass
 
