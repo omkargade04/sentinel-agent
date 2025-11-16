@@ -19,15 +19,20 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: temporal-worker
-    command: poetry run python src/worker_repo_indexing.py
+    entrypoint: ["python", "-m"]
+    command: ["src.workers.repo_indexing_worker"]
     depends_on:
-      - postgres
-      - temporal
+      temporal:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
       - TEMPORAL_SERVER_URL=temporal:7233
+      - PYTHONPATH=/app
     networks:
       - app-network
+    restart: on-failure
 
   postgres:
     container_name: postgres
@@ -49,24 +54,23 @@ services:
     image: temporalio/auto-setup:latest
     ports:
       - "7233:7233"
-    environment:
-      - TEMPORALITE_DB_FILENAME=/data/temporal.db
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        temporal server start-dev \
+          --db-filename /tmp/temporal.db \
+          --headless \
+          --ip 0.0.0.0
     volumes:
-      - temporal_data:/data
+      - temporal_data:/tmp
     networks:
       - app-network
-
-  temporal-ui:
-    container_name: temporal-ui
-    image: temporalio/web:latest
-    ports:
-      - "8233:8233"
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-    depends_on:
-      - temporal
-    networks:
-      - app-network
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   ngrok:
     image: ngrok/ngrok:latest

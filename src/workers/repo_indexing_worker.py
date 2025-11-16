@@ -7,17 +7,18 @@ from src.core.config import settings
 
 
 async def main():
-    activity_instance = RepoIndexingActivity()
-    workflow_instance = RepoIndexingWorkflow()
-    
     client = await Client.connect(
         target_host=settings.TEMPORAL_SERVER_URL,
     )
     worker = Worker(
         client,
         task_queue="repo-indexing-queue",
-        workflows=[workflow_instance],
-        activities=[activity_instance],
+        workflows=[RepoIndexingWorkflow],
+        activities=[
+            RepoIndexingActivity.clone_repo,
+            RepoIndexingActivity.parse_repo,
+            RepoIndexingActivity.index_symbols
+        ],
     )
     await worker.run()
     

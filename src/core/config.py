@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "api_key")
 
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "1234567890")
-    TEMPORAL_SERVER_URL: str = os.getenv("TEMPORAL_SERVER_URL", "http://localhost:7233")
+    TEMPORAL_SERVER_URL: str = os.getenv("TEMPORAL_SERVER_URL", "localhost:7233")
     
     postgres_db: str = "postgres"
     postgres_user: str = "postgres" 
