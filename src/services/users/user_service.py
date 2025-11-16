@@ -1,3 +1,4 @@
+from supabase_auth import AuthResponse
 from src.models.db.users import User
 from src.models.schemas.users import UserRegister, UserLogin
 from fastapi import Depends, Request
@@ -31,7 +32,7 @@ class UserService:
         if self.helpers._user_exists(register_request.email):
             raise DuplicateResourceException("User with this email already exists.")
 
-        auth_response = self.helpers._create_supabase_user(
+        auth_response: AuthResponse = self.helpers._create_supabase_user(
             register_request.email, register_request.password
         )
 
@@ -57,7 +58,7 @@ class UserService:
         if not self.helpers._user_exists(login_request.email):
             raise UserNotFoundError("User not found.")
 
-        auth_response = self.helpers._authenticate_with_supabase(
+        auth_response: AuthResponse = self.helpers._authenticate_with_supabase(
             login_request.email, login_request.password
         )
         
@@ -73,7 +74,7 @@ class UserService:
         Refreshes the session using a refresh token.
         """
         try:
-            response = self.supabase.auth.set_session(
+            response: AuthResponse = self.supabase.auth.set_session(
                 access_token="",
                 refresh_token=refresh_token
             )
@@ -105,7 +106,7 @@ class UserService:
         """
         Set the user ID for the installation.
         """
-        installation_id = request.query_params.get("installation_id")
+        installation_id: str = request.query_params.get("installation_id")
         if not installation_id:
             raise BadRequestException("installation_id query parameter is required.")
             

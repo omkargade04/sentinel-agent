@@ -15,20 +15,20 @@ class GithubHelpers:
     def generate_jwt_token(self) -> str:
         """Generate JWT token for GitHub App authentication"""
         try:
-            app_id = getattr(settings, 'GITHUB_APP_ID', None)
+            app_id: str = getattr(settings, 'GITHUB_APP_ID', None)
             private_key = getattr(settings, 'GITHUB_APP_PRIVATE_KEY', None)
             
             if not app_id or not private_key:
                 raise ValueError("GitHub App ID and Private Key must be configured")
             
-            now = int(time.time())
+            now: int = int(time.time())
             payload = {
                 'iat': now,
                 'exp': now + (10 * 60),
                 'iss': app_id
             }
             
-            token = jwt.encode(payload, private_key, algorithm='RS256')
+            token: str = jwt.encode(payload, private_key, algorithm='RS256')
             
             logger.info("Generated JWT token for GitHub App authentication")
             return token
