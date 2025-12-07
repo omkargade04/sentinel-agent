@@ -11,39 +11,29 @@ from src.utils.logging.otel_logger import logger
 
 load_dotenv()
 
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     temporal_client = TemporalClient()
-#     try:
-#         await temporal_client.connect()
-#     except Exception as e:
-#         logger.error(f"Failed to connect to Temporal server: {e}")
-#         raise e
-#     logger.info("Starting up Sentinel AI Code Reviewer")
-#     yield
-#     logger.info("Shutting down Sentinel AI Code Reviewer")
-#     try:
-#         await temporal_client.disconnect()
-#     except Exception as e:
-#         logger.error(f"Failed to disconnect from Temporal server: {e}")
-#         raise e
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting up Sentinel AI Code Reviewer")
+    try:
+        temporal_client = TemporalClient()
+        await temporal_client.connect()
+    except Exception as e:
+        logger.error(f"Failed to connect to Temporal server: {e}")
+        raise e
+    
+    yield
+    
+    logger.info("Shutting down Sentinel AI Code Reviewer")
+    try:
+        await app.state.temporal_client.close()
+        logger.info("Successfully disconnected from Temporal server")
+    except Exception as e:
+        logger.error(f"Failed to disconnect from Temporal server: {e}")
 
-app = FastAPIApp().get_app()
+app_instance = FastAPIApp(lifespan=lifespan)
+app = app_instance.get_app()
 
 add_exception_handlers(app, logger)
 
-async def run_server():
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-    server = uvicorn.Server(config)
-    temporal_client = TemporalClient()
-    try:
-        await temporal_client.connect()
-        await server.serve()
-    except Exception as e:
-        logger.error(f"Failed to serve: {e}")
-        raise e
-    finally:
-        await temporal_client.disconnect()
-
 if __name__ == "__main__":
-    asyncio.run(run_server())
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")

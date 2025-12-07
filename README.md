@@ -31,6 +31,10 @@ poetry shell
 ### 4️⃣ Run the Application
 ```sh
 python -m src.main
+
+or
+
+uvicorn src.main:app --reload
 ```
 
 ### Run via Docker

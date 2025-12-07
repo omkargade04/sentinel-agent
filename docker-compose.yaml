@@ -10,33 +10,13 @@ services:
       - postgres
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
-      - TEMPORAL_SERVER_URL=temporal:7233
+      - TEMPORAL_SERVER_URL=host.docker.internal:7233
     networks:
       - app-network
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: temporal-worker
-    entrypoint: ["python", "-m"]
-    command: ["src.workers.repo_indexing_worker"]
-    depends_on:
-      temporal:
-        condition: service_healthy
-      postgres:
-        condition: service_started
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
-      - TEMPORAL_SERVER_URL=temporal:7233
-      - PYTHONPATH=/app
-    networks:
-      - app-network
-    restart: on-failure
 
   postgres:
     container_name: postgres
-    image: pgvector/pgvector:pg15
+    image: pgvector/pgvector:pg16
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -48,29 +28,6 @@ services:
       - ./src/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - app-network
-
-  temporal:
-    container_name: temporal
-    image: temporalio/auto-setup:latest
-    ports:
-      - "7233:7233"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        temporal server start-dev \
-          --db-filename /tmp/temporal.db \
-          --headless \
-          --ip 0.0.0.0
-    volumes:
-      - temporal_data:/tmp
-    networks:
-      - app-network
-    healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
 
   ngrok:
     image: ngrok/ngrok:latest
@@ -87,7 +44,6 @@ services:
 
 volumes:
   postgres_data:
-  temporal_data:
 
 networks:
   app-network:

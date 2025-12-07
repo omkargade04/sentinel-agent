@@ -7,8 +7,9 @@ class TemporalClient:
         self.client = None
 
     async def connect(self):
-        self.client = await Client.connect("localhost:7233")
-        logger.info(f"Successfully connected to Temporal server at localhost:7233")
+        temporal_host = getattr(settings, 'TEMPORAL_SERVER_URL', 'localhost:7233')
+        self.client = await Client.connect(temporal_host)
+        logger.info(f"Successfully connected to Temporal server at {temporal_host}")
 
     async def disconnect(self):
         await self.client.close()
