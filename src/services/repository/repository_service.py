@@ -21,13 +21,13 @@ class RepositoryService:
         if not current_user.github_installations:
             raise UserNotFoundError("No GitHub installation found for the current user.")
             
-        installation_id: int = current_user.github_installations[0].installation_id
+        installation = current_user.github_installations[0]
+        installation_id: int = installation.installation_id
         
         try:
             installation_token: str = await self.helpers.generate_installation_token(installation_id)
             repositories_data = await self._fetch_all_repositories_from_github(installation_token)
-            
-            return [RepositoryRead.model_validate(repo) for repo in repositories_data]
+            return repositories_data
         except Exception as e:
             logger.error(f"Error getting all repositories for user {current_user.email}: {str(e)}")
             if not isinstance(e, AppException):
@@ -60,7 +60,8 @@ class RepositoryService:
         if not current_user.github_installations:
             raise UserNotFoundError("No GitHub installation found for the current user.")
             
-        installation_id = current_user.github_installations[0].installation_id
+        installation = current_user.github_installations[0]
+        installation_id: int = installation.installation_id
         try:
             result = self.db.query(Repository).filter(Repository.installation_id == installation_id).all()
             return result

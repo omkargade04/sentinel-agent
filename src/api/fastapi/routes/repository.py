@@ -14,7 +14,7 @@ async def get_all_repositories(
     repository_service: RepositoryService = Depends(RepositoryService)
 ):
     """Get a list of all repositories"""
-    return repository_service.get_all_repositories(current_user)
+    return await repository_service.get_all_repositories(current_user)
 
 @router.get("/user-selected")
 async def get_user_selected_repositories(

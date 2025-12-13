@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from supabase import Client
 from typing import Optional
 
@@ -60,8 +60,12 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token or user not found in Supabase"
             )
-        
-        local_user = db.query(User).filter(User.email == supabase_user.email).first()
+        local_user = (
+            db.query(User)
+            .options(joinedload(User.github_installations))
+            .filter(User.email == supabase_user.email)
+            .first()
+        )
         if not local_user:
             logger.error(f"User {supabase_user.email} not found in local database")
             raise HTTPException(
@@ -81,5 +85,3 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Could not validate credentials: {str(e)}"
         )
-    finally:
-        db.close()

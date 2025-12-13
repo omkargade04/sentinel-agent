@@ -113,14 +113,14 @@ async def whoami(
 
 @router.post("/set-user-id-for-installation")
 async def set_user_id_for_installation(
-    request: Request,
+    installation_id: int,
     authenticated_user: User = Depends(get_current_user),
     user_service: UserService = Depends(UserService),
 ):
     """ 
     Set the user ID for the installation.
     """
-    return user_service.set_user_id_for_installation(authenticated_user, request)
+    return user_service.set_user_id_for_installation(authenticated_user, installation_id)
      
 @router.post('/logout')
 async def logout(

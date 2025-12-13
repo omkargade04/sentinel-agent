@@ -102,11 +102,10 @@ class UserService:
             "updated_at": current_user.updated_at
         }
 
-    def set_user_id_for_installation(self, current_user: User, request: Request) -> dict:
+    def set_user_id_for_installation(self, current_user: User, installation_id: int) -> dict:
         """
         Set the user ID for the installation.
         """
-        installation_id: str = request.query_params.get("installation_id")
         if not installation_id:
             raise BadRequestException("installation_id query parameter is required.")
             

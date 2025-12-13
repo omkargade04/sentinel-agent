@@ -124,8 +124,8 @@ class GithubService:
 
         try:
             if event_type in ["installation", "installation_repositories"]:
-                payload = InstallationEvent.model_validate(body)
-                action = payload.action
+                payload = body
+                action = payload.get("action")
 
                 if event_type == "installation":
                     if action == "created":

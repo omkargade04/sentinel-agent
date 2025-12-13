@@ -19,11 +19,14 @@ class RepositoryHelpers:
         """Generate JWT token for Repository authentication"""
         try:
             app_id: str = getattr(settings, 'GITHUB_APP_ID', None)
-            private_key = getattr(settings, 'GITHUB_APP_PRIVATE_KEY', None)
+            private_key_raw = getattr(settings, 'GITHUB_APP_PRIVATE_KEY', None)
             
-            if not app_id or not private_key:
+            if not app_id or not private_key_raw:
                 raise ValueError("GitHub App ID and Private Key must be configured")
             
+            # Format the private key properly (replace literal \n with actual newlines)
+            private_key = private_key_raw.replace('\\n', '\n')
+
             now: int = int(time.time())
             payload = {
                 'iat': now,

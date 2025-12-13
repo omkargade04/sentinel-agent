@@ -55,8 +55,7 @@ class AppExceptionHandler:
         return JSONResponse(
             status_code=exc.status_code,
             content=ErrorResponse(
-                status="failure",
-                message=exc.message
+                errorMessage=exc.message
             ).model_dump(),
         )
 
@@ -67,8 +66,7 @@ class AppExceptionHandler:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=ErrorResponse(
-                status="failure",
-                message="An unexpected internal server error occurred."
+                errorMessage="An unexpected internal server error occurred."
             ).model_dump(),
         )
 

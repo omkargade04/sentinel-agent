@@ -144,7 +144,7 @@ class UserHelpers:
         finally:
             self.db.close()
     
-    def _set_user_id_for_installation(self, current_user: User, installation_id: str) -> dict:
+    def _set_user_id_for_installation(self, current_user: User, installation_id: int) -> dict:
         """Set the user ID for the installation"""
         github_installation: GithubInstallationSchema = self.db.query(GithubInstallation).filter(GithubInstallation.installation_id == installation_id).first()
         if not github_installation:
