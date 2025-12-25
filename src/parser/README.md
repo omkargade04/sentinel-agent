@@ -13,11 +13,17 @@ The parser module is responsible for:
 
 ```
 parser/
-├── __init__.py           # Module exports
-├── file_types.py         # FileTypes enum for language detection
-├── tree_sitter_parser.py # Tree-sitter parsing interface
-├── symbol_extractor.py   # Language-specific symbol extraction
-└── README.md             # This file
+├── __init__.py              # Module exports
+├── file_types.py            # FileTypes enum for language detection
+├── tree_sitter_parser.py    # Tree-sitter parsing interface
+├── symbol_extractor.py      # (deprecated - use extractor module)
+├── extractor/               # Modular symbol extraction
+│   ├── __init__.py          # Factory function and public exports
+│   ├── base_extractor.py    # Abstract base class and data models
+│   ├── exceptions.py        # Custom exceptions
+│   ├── python_extractor.py  # Python-specific extractor
+│   └── javascript_extractor.py  # JavaScript/TypeScript extractor
+└── README.md                # This file
 ```
 
 ## Key Components
@@ -51,12 +57,18 @@ if support_file(Path("example.py")):
 - `ParseError`: Failed to parse the file
 - `FileNotFoundError`: File does not exist
 
-### Symbol Extractor (`symbol_extractor.py`)
+### Symbol Extractor (`extractor/`)
 
-Language-specific extraction of code symbols from Tree-sitter ASTs:
+Language-specific extraction of code symbols from Tree-sitter ASTs. The extractor module
+provides a factory pattern for obtaining language-specific extractors:
 
 ```python
-from src.parser.symbol_extractor import get_symbol_extractor, ExtractedSymbol
+from src.parser.extractor import (
+    get_symbol_extractor,
+    get_supported_languages,
+    ExtractedSymbol,
+    SymbolHierarchy,
+)
 
 # Get a language-specific extractor
 extractor = get_symbol_extractor("python")
@@ -65,16 +77,18 @@ extractor = get_symbol_extractor("python")
 symbols: list[ExtractedSymbol] = extractor.extract_symbols(tree, file_path, file_content)
 
 # Build parent-child hierarchy
-hierarchy = extractor.build_symbol_hierarchy(symbols)
+hierarchy: list[SymbolHierarchy] = extractor.build_symbol_hierarchy(symbols)
 ```
 
 **Supported Languages:**
 - Python (`PythonSymbolExtractor`)
-- JavaScript/TypeScript (`JavaScriptSymbolExtractor`)
+- JavaScript (`JavaScriptSymbolExtractor`)
+- TypeScript (`TypeScriptSymbolExtractor`)
 
 **Exceptions:**
 - `SymbolExtractionError`: Failed to extract symbols
 - `HierarchyBuildError`: Failed to build symbol hierarchy
+- `UnsupportedLanguageError`: Language not supported for extraction
 
 ## Design Decisions
 
@@ -100,6 +114,14 @@ Extracted symbols include data for generating two types of IDs:
 The fingerprint is generated from the AST node type structure, making it resilient to
 whitespace changes, formatting, and minor edits.
 
+### Modular Extractor Architecture
+
+The extractor module is designed for maintainability and extensibility:
+- **Separation of concerns**: Each language has its own file
+- **Factory pattern**: `get_symbol_extractor()` returns the appropriate extractor
+- **Plugin support**: `register_extractor()` allows adding languages at runtime
+- **Shared base class**: Common logic in `SymbolExtractor` base class
+
 ## Tree-sitter Node Types
 
 Common node types used in symbol extraction:
@@ -120,20 +142,43 @@ Common node types used in symbol extraction:
 ## Adding New Languages
 
 1. Add the file extension mapping in `FILE_TYPE_TO_LANG` in `tree_sitter_parser.py`
-2. Create a new `LanguageSymbolExtractor` class in `symbol_extractor.py`:
+
+2. Create a new extractor file in `extractor/`:
 
 ```python
+# extractor/go_extractor.py
+from tree_sitter import Node, Tree
+from pathlib import Path
+
+from .base_extractor import ExtractedSymbol, SymbolExtractor
+from .exceptions import SymbolExtractionError
+
+
 class GoSymbolExtractor(SymbolExtractor):
     @property
     def language(self) -> str:
         return "go"
     
-    def extract_symbols(self, tree, file_path, file_content) -> list[ExtractedSymbol]:
+    def extract_symbols(
+        self,
+        tree: Tree,
+        file_path: Path,
+        file_content: bytes,
+    ) -> list[ExtractedSymbol]:
         # Implement Go-specific extraction
         ...
 ```
 
-3. Register in `_EXTRACTORS` dictionary in `symbol_extractor.py`
+3. Register in `extractor/__init__.py`:
+
+```python
+from .go_extractor import GoSymbolExtractor
+
+_EXTRACTORS["go"] = GoSymbolExtractor
+
+# Or use the register function at runtime:
+register_extractor("go", GoSymbolExtractor)
+```
 
 ## Testing
 
@@ -144,8 +189,10 @@ pytest tests/parser/ -v
 # Test with a specific file
 python -c "
 from src.parser.tree_sitter_parser import get_parser
-from src.parser.symbol_extractor import get_symbol_extractor
+from src.parser.extractor import get_symbol_extractor, get_supported_languages
 from pathlib import Path
+
+print(f'Supported languages: {get_supported_languages()}')
 
 tree, lang = get_parser(Path('example.py'))
 extractor = get_symbol_extractor(lang)

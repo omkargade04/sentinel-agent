@@ -40,7 +40,7 @@ from src.graph.utils import (
 )
 from src.parser import tree_sitter_parser
 from src.parser.tree_sitter_parser import ParseError, UnsupportedLanguageError
-from src.parser.symbol_extractor import get_symbol_extractor
+from src.parser.extractor import get_symbol_extractor
 
 
 class FileGraphBuilder:
