@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     NGROK_AUTHTOKEN: str = os.getenv("NGROK_AUTHTOKEN", "1234567890")
     TEMPORAL_SERVER_URL: str = os.getenv("TEMPORAL_SERVER_URL", "host.docker.internal:7233")
     
+    # Neo4j (Knowledge Graph)
+    NEO4J_URI: str = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    NEO4J_USERNAME: str = os.getenv("NEO4J_USERNAME", "neo4j")
+    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "neo4j")
+    NEO4J_DATABASE: str = os.getenv("NEO4J_DATABASE", "neo4j")
+    
     postgres_db: str = "postgres"
     postgres_user: str = "postgres" 
     posgtres_password: str = "postgres"
