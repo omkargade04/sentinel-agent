@@ -4,15 +4,10 @@ from src.utils.logging.otel_logger import logger
 from src.core.config import settings
 import httpx
 from src.utils.exception import AppException, UnauthorizedException
-from sqlalchemy.orm import Session
-from fastapi import Depends
-from src.core.database import get_db
-
 
 class RepositoryHelpers:
     """Helper utilities for Repository integration"""
-    
-    def __init__(self, db: Session = Depends(get_db)):
+    def __init__(self, db=None):
         self.db = db
     
     def generate_jwt_token(self) -> str:
