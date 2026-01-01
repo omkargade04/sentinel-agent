@@ -26,3 +26,20 @@ class IndexingStats:
     large_files_chunked: int = 0
     symbol_batches_processed: int = 0
     errors: list[str] = field(default_factory=list)
+    
+@dataclass
+class PersistenceStats:
+    """Statistics collected during knowledge graph persistence.
+    
+    Attributes:
+        nodes_created: Number of nodes created.
+        edges_created: Number of edges created.
+        nodes_updated: Number of nodes updated.
+        edges_updated: Number of edges updated.
+        errors: List of error messages encountered during persistence.
+    """
+    nodes_created: int = 0
+    edges_created: int = 0
+    nodes_updated: int = 0
+    edges_updated: int = 0
+    errors: list[str] = field(default_factory=list)

@@ -29,6 +29,26 @@ services:
     networks:
       - app-network
 
+  neo4j:
+    image: neo4j
+    container_name: sentinel_neo4j_container
+    networks:
+      - app-network
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_server_memory_heap_initial__size=6G
+      - NEO4J_server_memory_heap_max__size=12G
+      - NEO4J_dbms_memory_transaction_total_max=12G
+      - NEO4J_db_transaction_timeout=600s
+    volumes:
+      - neo4j_data:/var/lib/neo4j/data
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "--non-interactive", "RETURN 1;"]
+      interval: 30s
+      timeout: 60s
+      retries: 3
+  
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok
@@ -44,6 +64,7 @@ services:
 
 volumes:
   postgres_data:
+  neo4j_data:
 
 networks:
   app-network:

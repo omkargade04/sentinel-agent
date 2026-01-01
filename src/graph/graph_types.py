@@ -2,7 +2,8 @@
 
 import dataclasses
 import enum
-from typing import TypedDict, Union
+from datetime import datetime
+from typing import NotRequired, Required, TypedDict, Union
 
 @dataclasses.dataclass(frozen=True)
 class FileNode:
@@ -80,17 +81,21 @@ class KnowledgeGraphNode:
     node: Union[FileNode, SymbolNode, TextNode]
     
     def to_neo4j_node(self) -> Union["Neo4jFileNode", "Neo4jSymbolNode", "Neo4jTextNode"]:
-        """Convert the KnowledgeGraphNode into a Neo4j node format."""
+        """Convert the KnowledgeGraphNode into a Neo4j node format.
+        
+        Note: repo_id, node_type, and last_indexed_at are added at persistence time
+        by the handler, so they are not included in the returned TypedDict.
+        """
         match self.node:
             case FileNode():
                 return Neo4jFileNode(
-                    node_id=self.node_id,
+                    node_id=str(self.node_id),
                     basename=self.node.basename,
                     relative_path=self.node.relative_path,
                 )
             case SymbolNode():
                 return Neo4jSymbolNode(
-                    node_id=self.node_id,
+                    node_id=str(self.node_id),
                     symbol_version_id=self.node.symbol_version_id,
                     stable_symbol_id=self.node.stable_symbol_id,
                     kind=self.node.kind,
@@ -103,11 +108,10 @@ class KnowledgeGraphNode:
                     signature=self.node.signature,
                     docstring=self.node.docstring,
                     fingerprint=self.node.fingerprint,
-                    
                 )
             case TextNode():
                 return Neo4jTextNode(
-                    node_id=self.node_id,
+                    node_id=str(self.node_id),
                     text=self.node.text,
                     start_line=self.node.start_line,
                     end_line=self.node.end_line,
@@ -118,8 +122,8 @@ class KnowledgeGraphNode:
     @classmethod
     def from_neo4j_file_node(cls, node: "Neo4jFileNode") -> "KnowledgeGraphNode":
         return cls(
-            node_id = node["node_id"],
-            node = FileNode(
+            node_id=str(node["node_id"]),
+            node=FileNode(
                 basename=node["basename"],
                 relative_path=node["relative_path"],
             )
@@ -128,8 +132,8 @@ class KnowledgeGraphNode:
     @classmethod
     def from_neo4j_symbol_node(cls, node: "Neo4jSymbolNode") -> "KnowledgeGraphNode":
         return cls(
-            node_id = node["node_id"],
-            node = SymbolNode(
+            node_id=str(node["node_id"]),
+            node=SymbolNode(
                 symbol_version_id=node["symbol_version_id"],
                 stable_symbol_id=node["stable_symbol_id"],
                 kind=node["kind"],
@@ -148,8 +152,8 @@ class KnowledgeGraphNode:
     @classmethod
     def from_neo4j_text_node(cls, node: "Neo4jTextNode") -> "KnowledgeGraphNode":
         return cls(
-            node_id = node["node_id"],
-            node = TextNode(
+            node_id=str(node["node_id"]),
+            node=TextNode(
                 text=node["text"],
                 start_line=node["start_line"],
                 end_line=node["end_line"],
@@ -246,30 +250,39 @@ class Neo4jMetadataNode(TypedDict):
     commit_id: str
     
 class Neo4jFileNode(TypedDict):
-    node_id: int
-    basename: str
-    relative_path: str
+    node_id: Required[str]
+    basename: Required[str]
+    relative_path: Required[str]
+    repo_id: NotRequired[str]
+    node_type: NotRequired[str]
+    last_indexed_at: NotRequired[datetime]
     
 class Neo4jTextNode(TypedDict):
-    node_id: int
-    text: str
-    start_line: int
-    end_line: int
+    node_id: Required[str]
+    text: Required[str]
+    start_line: Required[int]
+    end_line: Required[int]
+    repo_id: NotRequired[str]
+    node_type: NotRequired[str]
+    last_indexed_at: NotRequired[datetime]
     
 class Neo4jSymbolNode(TypedDict):
-    node_id: int
-    symbol_version_id: str
-    stable_symbol_id: str
-    kind: str
-    name: str
-    qualified_name: str | None
-    language: str
-    relative_path: str
-    start_line: int
-    end_line: int
-    signature: str
-    docstring: str | None
-    fingerprint: str | None
+    node_id: Required[str]
+    symbol_version_id: Required[str]
+    stable_symbol_id: Required[str]
+    kind: Required[str]
+    name: Required[str]
+    qualified_name: NotRequired[str | None]
+    language: Required[str]
+    relative_path: Required[str]
+    start_line: Required[int]
+    end_line: Required[int]
+    signature: Required[str]
+    docstring: NotRequired[str | None]
+    fingerprint: NotRequired[str | None]
+    repo_id: NotRequired[str]
+    node_type: NotRequired[str]
+    last_indexed_at: NotRequired[datetime]
     
 class Neo4jHasFileEdge(TypedDict):
     source: Neo4jFileNode
