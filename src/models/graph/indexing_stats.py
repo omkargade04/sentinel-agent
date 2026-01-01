@@ -14,6 +14,8 @@ class IndexingStats:
         total_text_chunks: Total number of text chunks created.
         large_files_chunked: Number of large files processed via chunking.
         symbol_batches_processed: Total number of symbol batches processed for large files.
+        imports_edges: Number of IMPORTS edges created (cross-file).
+        calls_edges: Number of CALLS edges created (cross-file).
         errors: List of error messages encountered during indexing.
     """
     total_files: int = 0
@@ -25,6 +27,8 @@ class IndexingStats:
     total_text_chunks: int = 0
     large_files_chunked: int = 0
     symbol_batches_processed: int = 0
+    imports_edges: int = 0
+    calls_edges: int = 0
     errors: list[str] = field(default_factory=list)
     
 @dataclass

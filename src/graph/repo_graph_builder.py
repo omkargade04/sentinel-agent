@@ -24,6 +24,7 @@ from typing import Sequence
 
 from src.parser.extractor.chunked_extractor import ChunkedSymbolExtractor
 from src.graph.constants import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
+from src.graph.cross_file_edge_builder import CrossFileEdgeBuilder
 from src.graph.file_graph_builder import FileGraphBuilder
 from src.graph.graph_types import FileNode, KnowledgeGraphEdge, KnowledgeGraphEdgeType, KnowledgeGraphNode, SymbolNode, TextNode
 from src.models.graph.indexing_stats import IndexingStats
@@ -170,6 +171,33 @@ class RepoGraphBuilder:
             f"{stats.skipped_files} skipped, "
             f"{stats.failed_files} failed"
         )
+        
+        # Second pass: build cross-file IMPORTS and CALLS edges
+        try:
+            cross_file_builder = CrossFileEdgeBuilder(
+                repo_root=self.repo_root,
+                nodes=nodes,
+            )
+            cross_file_edges = cross_file_builder.build()
+            edges.extend(cross_file_edges)
+            
+            # Update stats
+            stats.imports_edges = sum(
+                1 for e in cross_file_edges 
+                if e.edge_type == KnowledgeGraphEdgeType.imports
+            )
+            stats.calls_edges = sum(
+                1 for e in cross_file_edges 
+                if e.edge_type == KnowledgeGraphEdgeType.calls
+            )
+            
+            logger.info(
+                f"Added cross-file edges: "
+                f"{stats.imports_edges} IMPORTS, {stats.calls_edges} CALLS"
+            )
+        except Exception as e:
+            logger.error(f"Failed to build cross-file edges: {e}")
+            stats.errors.append(f"Failed to build cross-file edges: {e}")
         
         return RepoGraphResult(
             root_node=root_kg_node,
