@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 from neo4j import AsyncDriver
 
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,

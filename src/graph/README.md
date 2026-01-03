@@ -339,7 +339,7 @@ symbol_nodes = [n for n in result.nodes if isinstance(n.node, SymbolNode)]
 **Building File Graph**:
 ```python
 from src.graph.file_graph_builder import FileGraphBuilder
-from src.graph.graph_types import KnowledgeGraphNode, FileNode
+from src.graph.helpers.graph_types import KnowledgeGraphNode, FileNode
 from pathlib import Path
 
 # Initialize builder
@@ -630,7 +630,7 @@ def test_repo_graph_building():
 ```python
 # Test file graph building
 from src.graph.file_graph_builder import FileGraphBuilder
-from src.graph.graph_types import KnowledgeGraphNode, FileNode
+from src.graph.helpers.graph_types import KnowledgeGraphNode, FileNode
 from pathlib import Path
 
 builder = FileGraphBuilder(

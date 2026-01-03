@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from neo4j import AsyncDriver
 
-from src.graph.graph_types import KnowledgeGraphEdge, KnowledgeGraphNode
+from src.graph.helpers.graph_types import KnowledgeGraphEdge, KnowledgeGraphNode
 from src.models.graph.indexing_stats import PersistenceStats
 from src.services.kg import kg_handler
 from src.utils.logging import get_logger

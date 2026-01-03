@@ -21,18 +21,16 @@ Supported languages:
 """
 
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,
     SymbolNode,
 )
-from src.parser.file_types import FileTypes
 from src.parser.references import (
     CallSite,
     ExtractionResult,
@@ -288,10 +286,8 @@ class CrossFileEdgeBuilder:
             logger.debug(f"Failed to extract references from {file_path}: {e}")
             return None
     
-    # -------------------------------------------------------------------------
     # IMPORTS Edge Resolution
-    # -------------------------------------------------------------------------
-    
+
     def _resolve_import(
         self,
         source_file: KnowledgeGraphNode,
@@ -554,9 +550,7 @@ class CrossFileEdgeBuilder:
         
         return None
     
-    # -------------------------------------------------------------------------
     # CALLS Edge Resolution
-    # -------------------------------------------------------------------------
     
     def _build_type_map(
         self,

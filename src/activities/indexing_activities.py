@@ -20,10 +20,12 @@ async def clone_repo_activity(repo_request: dict) -> dict:
     Args:
         repo_request: {
             "installation_id": int,
-            "github_repo_name": str,
-            "repo_id": str,
-            "default_branch": str,
-            "repo_url": str
+            "repository": {
+                "github_repo_name": str,
+                "repo_id": str,
+                "default_branch": str,
+                "repo_url": str
+            }
         }
     
     Returns:
@@ -36,20 +38,20 @@ async def clone_repo_activity(repo_request: dict) -> dict:
         ApplicationError (non_retryable=True): Auth/permission/not-found errors
         ApplicationError (non_retryable=False): Network/transient errors
     """
-    activity.logger.info(f"Cloning {repo_request['github_repo_name']}")
+    activity.logger.info(f"Cloning {repo_request['repository']['github_repo_name']}")
     service = RepoCloneService()
     
     try:
         # Service handles token minting, git operations
         result = await service.clone_repo(
-            repo_full_name=repo_request['github_repo_name'],
-            repo_id=repo_request['repo_id'],
+            repo_full_name=repo_request['repository']['github_repo_name'],
+            repo_id=repo_request['repository']['repo_id'],
             installation_id=repo_request['installation_id'],
-            default_branch=repo_request['default_branch'],
-            repo_url=repo_request['repo_url'],
+            default_branch=repo_request['repository']['default_branch'],
+            repo_url=repo_request['repository']['repo_url'],
         )
         activity.logger.info(
-            f"Successfully cloned {repo_request['github_repo_name']} to {result['local_path']} at {result['commit_sha']}"
+            f"Successfully cloned {repo_request['repository']['github_repo_name']} to {result['local_path']} at {result['commit_sha']}"
         )
         return result
     except Exception as e:

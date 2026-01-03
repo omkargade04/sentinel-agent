@@ -31,13 +31,15 @@ class RepoIndexingWorkflow:
         Args:
             repo_request: {
                 "installation_id": int,
-                "github_repo_name": str,
-                "repo_id": str,
-                "default_branch": str,
-                "repo_url": str
+                "repository": {
+                    "github_repo_name": str,
+                    "repo_id": str,
+                    "default_branch": str,
+                    "repo_url": str
+                }
             }
         """
-        workflow.logger.info(f"Starting repository indexing workflow for {repo_request['github_repo_name']}")
+        workflow.logger.info(f"Starting repository indexing workflow for {repo_request['repository']['github_repo_name']}")
         
         # Retry policy
         retry_policy = RetryPolicy(
@@ -67,7 +69,7 @@ class RepoIndexingWorkflow:
             # Setp 2: Parse repo (AST + symbols)
             parse_input = {
                 "local_path": clone_result['local_path'],
-                "repo_id": repo_request['repo_id'],
+                "repo_id": repo_request['repository']['repo_id'],
                 "commit_sha": clone_result['commit_sha'],
             }
             parse_result = await workflow.execute_activity(
@@ -83,7 +85,7 @@ class RepoIndexingWorkflow:
             
             # Step 3: Persist metadata to Postgres
             persist_input = {
-                "repo_id": repo_request["repo_id"],
+                "repo_id": repo_request["repository"]["repo_id"],
                 "commit_sha": clone_result["commit_sha"],
                 "parse_result": parse_result,
             }
@@ -97,8 +99,8 @@ class RepoIndexingWorkflow:
             
             # Step 4: Persist knowledge graph to Neo4j
             persist_kg_input = {
-                "repo_id": repo_request["repo_id"],
-                "github_repo_name": repo_request["github_repo_name"],
+                "repo_id": repo_request["repository"]["repo_id"],
+                "github_repo_name": repo_request["repository"]["github_repo_name"],
                 "graph_result": parse_result["graph_result"],
             }
             await workflow.execute_activity(
@@ -111,7 +113,7 @@ class RepoIndexingWorkflow:
             
             # Step 5: Cleanup stale KG nodes (nodes from previous commits that no longer exist)
             cleanup_kg_input = {
-                "repo_id": repo_request["repo_id"],
+                "repo_id": repo_request["repository"]["repo_id"],
                 "ttl_days": 7,  # Remove nodes not refreshed in last 7 days
             }
             cleanup_result = await workflow.execute_activity(
@@ -126,7 +128,7 @@ class RepoIndexingWorkflow:
             
             return {
                 "status": "success",
-                "repo": repo_request["github_repo_name"],
+                "repo": repo_request["repository"]["github_repo_name"],
                 "commit_sha": clone_result["commit_sha"],
                 "stats": parse_result["stats"],
                 "stale_nodes_deleted": cleanup_result["nodes_deleted"],

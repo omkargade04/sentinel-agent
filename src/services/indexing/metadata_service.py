@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy import update
 from src.core.database import SessionLocal
-from src.graph.graph_types import FileNode
+from src.graph.helpers.graph_types import FileNode
 from src.models.db.repositories import Repository
 from src.models.db.repo_snapshots import RepoSnapshot
 from src.models.db.indexed_files import IndexedFile

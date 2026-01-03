@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Sequence
 
 from src.parser.extractor.chunked_extractor import ChunkedSymbolExtractor
-from src.graph.constants import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
+from src.graph.helpers.constants import DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
 from src.graph.cross_file_edge_builder import CrossFileEdgeBuilder
 from src.graph.file_graph_builder import FileGraphBuilder
-from src.graph.graph_types import FileNode, KnowledgeGraphEdge, KnowledgeGraphEdgeType, KnowledgeGraphNode, SymbolNode, TextNode
+from src.graph.helpers.graph_types import FileNode, KnowledgeGraphEdge, KnowledgeGraphEdgeType, KnowledgeGraphNode, SymbolNode, TextNode
 from src.models.graph.indexing_stats import IndexingStats
 from src.models.graph.repo_graph_result import RepoGraphResult
 

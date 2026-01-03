@@ -25,7 +25,7 @@ to extract SymbolNodes with stable identities and spans.
 from pathlib import Path
 from typing import Sequence, Tuple
 
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
@@ -33,7 +33,7 @@ from src.graph.graph_types import (
     SymbolNode,
     TextNode,
 )
-from src.graph.utils import (
+from src.graph.helpers.utils import (
     generate_ast_fingerprint_from_types,
     generate_stable_symbol_id,
     generate_symbol_version_id,

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,

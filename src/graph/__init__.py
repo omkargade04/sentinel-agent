@@ -12,7 +12,7 @@ Main components:
 
 from src.parser.extractor.chunked_extractor import ChunkedSymbolExtractor, SymbolBatch
 from src.graph.file_graph_builder import FileGraphBuilder
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,

@@ -20,14 +20,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterator, Sequence
 
-from src.graph.graph_types import (
+from src.graph.helpers.graph_types import (
     FileNode,
     KnowledgeGraphEdge,
     KnowledgeGraphEdgeType,
     KnowledgeGraphNode,
     SymbolNode,
 )
-from src.graph.utils import (
+from src.graph.helpers.utils import (
     generate_ast_fingerprint_from_types,
     generate_stable_symbol_id,
     generate_symbol_version_id,
