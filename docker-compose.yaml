@@ -7,10 +7,17 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/postgres
       - TEMPORAL_SERVER_URL=host.docker.internal:7233
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=password
+      - NEO4J_DATABASE=neo4j
     networks:
       - app-network
 
@@ -22,13 +29,37 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./src/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - app-network
 
+  neo4j:
+    image: neo4j
+    container_name: sentinel_neo4j_container
+    networks:
+      - app-network
+    ports:
+      - "7474:7474"  # HTTP (Neo4j Browser)
+      - "7687:7687"  # Bolt (database connections)
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_server_memory_heap_initial__size=2G
+      - NEO4J_server_memory_heap_max__size=6G
+      - NEO4J_dbms_memory_transaction_total_max=6G
+      - NEO4J_db_transaction_timeout=600s
+    volumes:
+      - neo4j_data:/var/lib/neo4j/data
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "--non-interactive", "RETURN 1;"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+      
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok
@@ -44,6 +75,7 @@ services:
 
 volumes:
   postgres_data:
+  neo4j_data:
 
 networks:
   app-network:
