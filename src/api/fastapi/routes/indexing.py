@@ -30,7 +30,7 @@ async def index_repo(
         responses = []
         
         for repo in repo_list:
-            workflow_id = f"repo-index-{repo.repo_id}-{repo.default_branch}"
+            workflow_id = f"repo-index-{repo.github_repo_id}-{repo.default_branch}"
             input = {
                 "installation_id": repo_request.installation_id,
                 "repository": repo.model_dump(mode="json"),

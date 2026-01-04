@@ -48,8 +48,9 @@ class RepoGraphBuilder:
     Example:
         builder = RepoGraphBuilder(
             repo_id="my-repo-123",
-            commit_sha="abc123def456",
+            github_repo_id=1234567890,
             repo_root=Path("/path/to/repo"),
+            commit_sha="abc123def456",  # Optional
         )
         result = builder.build()
         # result.nodes, result.edges contain the full graph
@@ -57,8 +58,9 @@ class RepoGraphBuilder:
     def __init__(
         self,
         repo_id: str,
-        commit_sha: str,
+        github_repo_id: int,
         repo_root: Path | str,
+        commit_sha: str | None = None,
         excluded_dirs: frozenset[str] | None = None,
         excluded_files: frozenset[str] | None = None,
         max_file_size_bytes: int = 1_000_000,  # 1MB default - files above this use chunked processing
@@ -72,7 +74,9 @@ class RepoGraphBuilder:
         
         Args:
             repo_id: Unique identifier for the repository.
-            commit_sha: The commit SHA being indexed (used for symbol versioning).
+            github_repo_id: GitHub repository ID.
+            commit_sha: Optional commit SHA being indexed (used for symbol versioning).
+                        If None, symbol IDs will not include commit SHA.
             repo_root: Path to the root directory of the repository.
             excluded_dirs: Set of directory names to exclude. Defaults to common
                 build/cache directories.
@@ -89,6 +93,7 @@ class RepoGraphBuilder:
             symbol_batch_size: Number of symbols per batch when using chunked extraction.
         """
         self.repo_id = repo_id
+        self.github_repo_id = github_repo_id
         self.commit_sha = commit_sha
         self.repo_root = Path(repo_root) if isinstance(repo_root, str) else repo_root
         self.excluded_dirs = excluded_dirs or DEFAULT_EXCLUDED_DIRS
@@ -102,6 +107,7 @@ class RepoGraphBuilder:
         
         self.file_builder = FileGraphBuilder(
             repo_id=repo_id,
+            github_repo_id=github_repo_id,
             commit_sha=commit_sha,
             max_symbols=max_symbols_per_file,
             chunk_size=chunk_size,

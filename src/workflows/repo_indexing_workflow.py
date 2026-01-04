@@ -9,6 +9,8 @@ from src.activities.indexing_activities import (
     cleanup_stale_kg_nodes_activity,
 )
 from temporalio import workflow
+from src.utils.logging import get_logger
+logger = get_logger(__name__)
 
 @workflow.defn
 class RepoIndexingWorkflow:
@@ -33,13 +35,14 @@ class RepoIndexingWorkflow:
                 "installation_id": int,
                 "repository": {
                     "github_repo_name": str,
+                    "github_repo_id": int,
                     "repo_id": str,
                     "default_branch": str,
                     "repo_url": str
                 }
             }
         """
-        workflow.logger.info(f"Starting repository indexing workflow for {repo_request['repository']['github_repo_name']}")
+        logger.info(f"Starting repository indexing workflow for {repo_request['repository']['github_repo_name']}")
         
         # Retry policy
         retry_policy = RetryPolicy(
@@ -62,13 +65,15 @@ class RepoIndexingWorkflow:
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy
             )
-            workflow.logger.info(
-                f"Cloned to {clone_result['local_path']} at {clone_result['commit_sha']}"
+            commit_info = clone_result.get('commit_sha') or 'branch-based'
+            logger.info(
+                f"Cloned to {clone_result['local_path']} (identifier: {commit_info})"
             )
             
             # Setp 2: Parse repo (AST + symbols)
             parse_input = {
                 "local_path": clone_result['local_path'],
+                "github_repo_id": repo_request['repository']['github_repo_id'],
                 "repo_id": repo_request['repository']['repo_id'],
                 "commit_sha": clone_result['commit_sha'],
             }
@@ -78,28 +83,29 @@ class RepoIndexingWorkflow:
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy
             )
-            workflow.logger.info(
+            logger.info(
                 f"Parsed {parse_result['stats']['total_symbols']} symbols "
                 f"from {parse_result['stats']['indexed_files']} files"
             )
             
-            # Step 3: Persist metadata to Postgres
+            # Step 3: Persist metadata to Postgres (snapshot record + last_indexed_at)
             persist_input = {
                 "repo_id": repo_request["repository"]["repo_id"],
+                "github_repo_id": repo_request["repository"]["github_repo_id"],
                 "commit_sha": clone_result["commit_sha"],
-                "parse_result": parse_result,
             }
             await workflow.execute_activity(
                 persist_metadata_activity,
                 persist_input,
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=retry_policy,
             )
-            workflow.logger.info("Metadata persisted to Postgres")
+            logger.info("Metadata persisted to Postgres")
             
             # Step 4: Persist knowledge graph to Neo4j
             persist_kg_input = {
                 "repo_id": repo_request["repository"]["repo_id"],
+                "github_repo_id": repo_request["repository"]["github_repo_id"],
                 "github_repo_name": repo_request["repository"]["github_repo_name"],
                 "graph_result": parse_result["graph_result"],
             }
@@ -109,7 +115,7 @@ class RepoIndexingWorkflow:
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=retry_policy,
             )
-            workflow.logger.info("Knowledge graph persisted to Neo4j")
+            logger.info("Knowledge graph persisted to Neo4j")
             
             # Step 5: Cleanup stale KG nodes (nodes from previous commits that no longer exist)
             cleanup_kg_input = {
@@ -122,7 +128,7 @@ class RepoIndexingWorkflow:
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )
-            workflow.logger.info(
+            logger.info(
                 f"Cleaned up {cleanup_result['nodes_deleted']} stale KG nodes"
             )
             
@@ -134,7 +140,7 @@ class RepoIndexingWorkflow:
                 "stale_nodes_deleted": cleanup_result["nodes_deleted"],
             }
         except Exception as e:
-            workflow.logger.error(f"Failed to clone repository: {str(e)}")
+            logger.error(f"Failed to clone repository: {str(e)}")
             raise
         finally:
             # Step 5: Always cleanup (even on failure)
@@ -146,6 +152,6 @@ class RepoIndexingWorkflow:
                         start_to_close_timeout=timedelta(minutes=2),
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
-                    workflow.logger.info(f"Cleaned up {clone_result['local_path']}")
+                    logger.info(f"Cleaned up {clone_result['local_path']}")
                 except Exception as e:
-                    workflow.logger.warning(f"Cleanup failed: {e}")
+                    logger.warning(f"Cleanup failed: {e}")

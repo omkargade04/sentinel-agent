@@ -28,25 +28,30 @@ class RepoCloneService:
         self,
         *,
         repo_full_name: str,
+        github_repo_id: int,
         repo_id: str,
         installation_id: int,
         default_branch: str,
         repo_url: str,
+        commit_sha: str | None = None,
     ) -> Dict[str, str]:
         """
         Clone repository and return local path.
         
         Args:
             repo_full_name: e.g., "owner/repo"
+            github_repo_id: GitHub repository ID
             repo_id: Internal repo identifier
             installation_id: GitHub App installation ID
             default_branch: Branch name to clone
             repo_url: Repository URL (optional, used for validation)
+            commit_sha: Optional commit SHA. If not provided, will resolve from branch.
+                        If resolution fails, will use branch name in path.
         
         Returns:
             {
-                "local_path": "/tmp/{repo_id}-{commit_sha}",
-                "commit_sha": "abc123..."
+                "local_path": "/tmp/{repo_id}-{identifier}",
+                "commit_sha": "abc123..." or None
             }
         
         Raises:
@@ -55,22 +60,38 @@ class RepoCloneService:
         # Mint installation token
         token = await self.helpers.generate_installation_token(installation_id)
         
-        # Resolve commit SHA from branch
-        commit_sha = await self._resolve_commit_sha(repo_full_name, default_branch, token, repo_url)
+        # Resolve commit SHA if not provided
+        resolved_commit_sha = commit_sha
+        if not resolved_commit_sha:
+            try:
+                resolved_commit_sha = await self._resolve_commit_sha(
+                    repo_full_name, default_branch, token, repo_url
+                )
+            except Exception as e:
+                # If resolution fails, log warning and continue with branch name
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Failed to resolve commit SHA for {repo_full_name}@{default_branch}: {e}. "
+                    f"Continuing with branch name as identifier."
+                )
+                resolved_commit_sha = None
         
-        # Clone to deterministic path
-        local_path = f"/tmp/{repo_id}-{commit_sha}"
+        # Use commit SHA if available, otherwise use branch name
+        identifier = resolved_commit_sha or default_branch
+        local_path = f"/tmp/{repo_id}-{identifier}"
         
         # Check if already exists (concurrent execution or cached)
         if Path(local_path).exists():
-            return {"local_path": local_path, "commit_sha": commit_sha}
+            return {"local_path": local_path, "commit_sha": resolved_commit_sha}
         
-        # Step 4: Clone with atomic staging
+        # Clone with atomic staging
         temp_path = f"{local_path}.tmp-{os.getpid()}"
         try:
             await self._clone_repository(
                 repo_full_name=repo_full_name,
-                commit_sha=commit_sha,
+                commit_sha=resolved_commit_sha,
+                branch=default_branch,
                 temp_path=temp_path,
                 token=token,
                 repo_url=repo_url,
@@ -79,7 +100,7 @@ class RepoCloneService:
             # Atomic rename
             os.rename(temp_path, local_path)
             
-            return {"local_path": local_path, "commit_sha": commit_sha}
+            return {"local_path": local_path, "commit_sha": resolved_commit_sha}
         except Exception as e:
             # Cleanup temp dir on failure
             if Path(temp_path).exists():
@@ -87,7 +108,12 @@ class RepoCloneService:
             raise RepoCloneError(f"Failed to clone {repo_full_name}: {e}") from e
     
     async def _resolve_commit_sha(
-        self, *, repo_full_name: str, default_branch: str, token: str, repo_url: str) -> str:
+        self,
+        repo_full_name: str,
+        default_branch: str,
+        token: str,
+        repo_url: str,
+    ) -> str:
         """Resolve branch name to commit SHA using git ls-remote."""
         if not repo_url:
             repo_url = f"https://github.com/{repo_full_name}.git"
@@ -131,8 +157,24 @@ class RepoCloneService:
             os.unlink(askpass_path)
             
     async def _clone_repository(
-        self, *, repo_full_name: str, commit_sha: str, temp_path: str, token: str, repo_url: str) -> None:
-        """Execute git clone using shallow fetch."""
+        self,
+        repo_full_name: str,
+        commit_sha: str | None,
+        branch: str,
+        temp_path: str,
+        token: str,
+        repo_url: str,
+    ) -> None:
+        """Execute git clone using shallow fetch.
+        
+        Args:
+            repo_full_name: Repository full name (owner/repo)
+            commit_sha: Optional commit SHA. If provided, fetches specific commit.
+            branch: Branch name to use if commit_sha is None
+            temp_path: Temporary directory path for clone
+            token: GitHub access token
+            repo_url: Repository URL
+        """
         if not repo_url:
             repo_url = f"https://github.com/{repo_full_name}.git"
             
@@ -155,19 +197,63 @@ class RepoCloneService:
             # Add remote
             await self._run_git_cmd(["git", "remote", "add", "origin", repo_url], env, cwd=temp_path)
 
-            # Shallow fetch specific commit
-            await self._run_git_cmd(
-                ["git", "fetch", "--depth", "1", "origin", commit_sha],
-                env,
-                cwd=temp_path,
-            )
-            
-            # Checkout detached
-            await self._run_git_cmd(
-                ["git", "checkout", "--detach", commit_sha],
-                env,
-                cwd=temp_path,
-            )
+            if commit_sha:
+                # Shallow fetch specific commit
+                await self._run_git_cmd(
+                    ["git", "fetch", "--depth", "1", "origin", commit_sha],
+                    env,
+                    cwd=temp_path,
+                )
+                
+                    # Checkout detached at commit
+                await self._run_git_cmd(
+                    ["git", "checkout", "--detach", commit_sha],
+                    env,
+                    cwd=temp_path,
+                )
+            else:
+                # Fetch branch instead - try the requested branch first
+                try:
+                    await self._run_git_cmd(
+                        ["git", "fetch", "--depth", "1", "origin", f"refs/heads/{branch}"],
+                        env,
+                        cwd=temp_path,
+                    )
+                    # Create local branch tracking remote branch
+                    await self._run_git_cmd(
+                        ["git", "checkout", "-b", branch, f"origin/{branch}"],
+                        env,
+                        cwd=temp_path,
+                    )
+                except RepoCloneError as e:
+                    # Branch might not exist, try to detect default branch
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"Branch '{branch}' not found for {repo_full_name}. "
+                        f"Attempting to detect default branch..."
+                    )
+                    
+                    # Try to get default branch from remote HEAD
+                    try:
+                        await self._run_git_cmd(
+                            ["git", "fetch", "--depth", "1", "origin", "HEAD"],
+                            env,
+                            cwd=temp_path,
+                        )
+                        # Checkout whatever HEAD points to
+                        await self._run_git_cmd(
+                            ["git", "checkout", "FETCH_HEAD"],
+                            env,
+                            cwd=temp_path,
+                        )
+                        logger.info(f"Successfully checked out default branch for {repo_full_name}")
+                    except RepoCloneError as e2:
+                        # If that also fails, raise original error
+                        raise RepoCloneError(
+                            f"Failed to clone branch '{branch}' for {repo_full_name}. "
+                            f"Branch not found and could not detect default branch: {e2}"
+                        ) from e
         finally:
             os.unlink(askpass_path)
             

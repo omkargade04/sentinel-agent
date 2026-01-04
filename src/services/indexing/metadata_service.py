@@ -7,37 +7,34 @@ import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy import update
 from src.core.database import SessionLocal
-from src.graph.helpers.graph_types import FileNode
 from src.models.db.repositories import Repository
 from src.models.db.repo_snapshots import RepoSnapshot
-from src.models.db.indexed_files import IndexedFile
-from src.models.graph.indexing_stats import IndexingStats
-from src.models.graph.repo_graph_result import RepoGraphResult
 
 class MetadataService:
-    """Persist indexing metadata to Postgres."""
+    """Persist indexing metadata to Postgres.
+    
+    This service creates snapshot records and updates repository timestamps.
+    The actual code graph data (files, symbols, edges) is stored in Neo4j.
+    """
     
     async def persist_indexing_metadata(
         self,
         *,
         repo_id: str,
-        commit_sha: str,
-        graph_result: RepoGraphResult,
-        stats: IndexingStats,
+        github_repo_id: int,
+        commit_sha: str | None = None,
     ) -> str:
         """
         Persist indexing metadata to Postgres.
         
-        Writes:
-        1. repo_snapshots (new snapshot record)
-        2. indexed_files (all files discovered)
-        3. repositories (update last_indexed_sha, last_indexed_at)
+        Creates a snapshot record to track this indexing run and updates
+        the repository's last_indexed_at timestamp. This allows linking
+        PR reviews to specific indexing snapshots.
         
         Args:
             repo_id: Internal repo identifier
-            commit_sha: Commit SHA indexed
-            graph_result: Parsed graph with nodes/edges
-            stats: Indexing statistics
+            github_repo_id: GitHub repository ID
+            commit_sha: Optional commit SHA indexed. If None, snapshot is branch-based.
         
         Returns:
             snapshot_id (UUID string)
@@ -45,7 +42,7 @@ class MetadataService:
         db: Session = SessionLocal()
         
         try:
-            # Create snapshot record
+            # Create snapshot record (commit_sha can be None for branch-based indexing)
             snapshot_id = str(uuid.uuid4())
             snapshot = RepoSnapshot(
                 id=snapshot_id,
@@ -55,35 +52,11 @@ class MetadataService:
             )
             db.add(snapshot)
             
-            # Upsert indexed_files for all FileNode entries
-            file_nodes = [
-                node for node in graph_result.nodes if isinstance(node, FileNode)
-            ]
-            
-            for file_node in file_nodes:
-                indexed_file = IndexedFile(
-                    id=str(uuid.uuid4()),
-                    repository_id=repo_id,
-                    snapshot_id=snapshot_id,
-                    file_path=file_node.relative_path,
-                    file_sha=file_node.file_sha or "",
-                    language=file_node.language or "unknown",
-                    file_size=file_node.size_bytes or 0,
-                    line_count=file_node.line_count or 0,
-                    last_modified=datetime.utcnow(),
-                    index_status="indexed",
-                    indexed_at=datetime.utcnow(),
-                )
-                db.merge(indexed_file)
-                
-            # Update repository last_indexed metadata
+            # Update repository last_indexed_at timestamp
             db.execute(
                 update(Repository)
-                .where(Repository.id == repo_id)
-                .values(
-                    last_indexed_sha=commit_sha,
-                    last_indexed_at=datetime.utcnow(),
-                )
+                .where(Repository.github_repo_id == github_repo_id and Repository.id == repo_id)
+                .values(last_indexed_at=datetime.datetime.utcnow())
             )
             
             db.commit()

@@ -1,6 +1,7 @@
 .env
 .venv/
 .cursor
+/results
 /prometheus_repo
 __pycache__/
 */__pycache__/

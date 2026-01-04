@@ -1,57 +1,68 @@
-from typing import List
-
 from temporalio.exceptions import ApplicationError
 from src.core.config import settings
 from src.core.neo4j import Neo4jConnection
 from src.services.indexing.metadata_service import MetadataService
 from src.services.indexing.repo_clone_service import RepoCloneService
 from temporalio import activity
-
+from src.activities.helpers import _deserialize_node, _deserialize_edge
 from src.services.indexing.repo_parsing_service import RepoParsingService
 from src.services.kg import KnowledgeGraphService
-from src.models.graph.indexing_stats import IndexingStats
+from src.utils.logging import get_logger
+logger = get_logger(__name__)
+
 
 # Clone repo activity
 @activity.defn
 async def clone_repo_activity(repo_request: dict) -> dict:
     """
-    Clone repository and resolve commit SHA.
+    Clone repository and optionally resolve commit SHA.
     
     Args:
         repo_request: {
             "installation_id": int,
             "repository": {
                 "github_repo_name": str,
+                "github_repo_id": int,
                 "repo_id": str,
                 "default_branch": str,
-                "repo_url": str
+                "repo_url": str,
+                "commit_sha": str | None (optional)
             }
         }
     
     Returns:
         {
             "local_path": str,
-            "commit_sha": str
+            "commit_sha": str | None
         }
     
     Raises:
         ApplicationError (non_retryable=True): Auth/permission/not-found errors
         ApplicationError (non_retryable=False): Network/transient errors
     """
-    activity.logger.info(f"Cloning {repo_request['repository']['github_repo_name']}")
+    repo_info = repo_request['repository']
+    logger.info(
+        f"Cloning {repo_info['github_repo_name']} "
+        f"(branch: {repo_info['default_branch']}, "
+        f"commit_sha: {repo_info.get('commit_sha', 'not provided')})"
+    )
     service = RepoCloneService()
     
     try:
         # Service handles token minting, git operations
         result = await service.clone_repo(
-            repo_full_name=repo_request['repository']['github_repo_name'],
-            repo_id=repo_request['repository']['repo_id'],
+            repo_full_name=repo_info['github_repo_name'],
+            github_repo_id=repo_info['github_repo_id'],
+            repo_id=repo_info['repo_id'],
             installation_id=repo_request['installation_id'],
-            default_branch=repo_request['repository']['default_branch'],
-            repo_url=repo_request['repository']['repo_url'],
+            default_branch=repo_info['default_branch'],
+            repo_url=repo_info['repo_url'],
+            commit_sha=repo_info.get('commit_sha'),  # Optional
         )
-        activity.logger.info(
-            f"Successfully cloned {repo_request['repository']['github_repo_name']} to {result['local_path']} at {result['commit_sha']}"
+        commit_info = result.get('commit_sha') or 'branch-based'
+        logger.info(
+            f"Successfully cloned {repo_info['github_repo_name']} to {result['local_path']} "
+            f"(identifier: {commit_info})"
         )
         return result
     except Exception as e:
@@ -66,7 +77,7 @@ async def clone_repo_activity(repo_request: dict) -> dict:
                 ) from e
             
             # Retryable: network, rate limits, etc.
-            activity.logger.warning(f"Retryable error cloning repo: {e}")
+            logger.warning(f"Retryable error cloning repo: {e}")
             raise
         
 # Parse repo activity
@@ -78,19 +89,21 @@ async def parse_repo_activity(input_data: dict) -> dict:
     Args:
         input_data: {
             "local_path": str,
+            "github_repo_id": int,
             "repo_id": str,
-            "commit_sha": str
+            "commit_sha": str | None (optional)
         }
     
     Returns:
         {
             "graph_result": RepoGraphResult (nodes, edges, root),
             "stats": IndexingStats,
+            "github_repo_id": int,
             "repo_id": str,
-            "commit_sha": str
+            "commit_sha": str | None
         }
     """
-    activity.logger.info(f"Parsing repo at {input_data['local_path']}")
+    logger.info(f"Parsing repo at {input_data['local_path']}")
     
     service = RepoParsingService()
     
@@ -98,13 +111,15 @@ async def parse_repo_activity(input_data: dict) -> dict:
         # Send heartbeat for long operations
         activity.heartbeat("Starting AST parsing")
         
+        commit_sha = input_data.get("commit_sha")  # May be None
         graph_result = await service.parse_repository(
             local_path=input_data["local_path"],
+            github_repo_id=input_data["github_repo_id"],
             repo_id=input_data["repo_id"],
-            commit_sha=input_data["commit_sha"],
+            commit_sha=commit_sha,
         )
         
-        activity.logger.info(
+        logger.info(
             f"Parsed {len(graph_result.nodes)} nodes, "
             f"{len(graph_result.edges)} edges"
         )
@@ -112,12 +127,13 @@ async def parse_repo_activity(input_data: dict) -> dict:
         return {
             "graph_result": graph_result,
             "stats": graph_result.stats.__dict__,
+            "github_repo_id": input_data["github_repo_id"],
             "repo_id": input_data["repo_id"],
-            "commit_sha": input_data["commit_sha"],
+            "commit_sha": commit_sha,
         }
         
     except Exception as e:
-        activity.logger.error(f"Failed to parse repo: {e}")
+        logger.error(f"Failed to parse repo: {e}")
         raise ApplicationError(f"Parsing failed: {e}") from e
     
 # Postgres metadata persistence activity
@@ -126,46 +142,45 @@ async def persist_metadata_activity(input_data: dict) -> dict:
     """
     Persist indexing metadata to Postgres.
     
-    Writes:
-    - repo_snapshots (commit_sha record)
-    - indexed_files (file metadata)
-    - repositories (update last_indexed_sha, last_indexed_at)
+    Creates a snapshot record to track this indexing run and updates
+    the repository's last_indexed_at timestamp. This allows linking
+    PR reviews to specific indexing snapshots.
+    
+    Note: The actual code graph data (files, symbols, edges) is stored in Neo4j
+    via persist_kg_activity. This activity only stores lightweight metadata.
     
     Args:
         input_data: {
             "repo_id": str,
-            "commit_sha": str,
-            "parse_result": dict with graph_result and stats
+            "github_repo_id": int,
+            "commit_sha": str | None (optional)
         }
     
     Returns:
         {"status": "success", "snapshot_id": str}
     """
-    activity.logger.info(
+    commit_sha = input_data.get("commit_sha")
+    commit_info = commit_sha or "branch-based (no commit SHA)"
+    logger.info(
         f"Persisting metadata for repo {input_data['repo_id']} "
-        f"at {input_data['commit_sha']}"
+        f"(identifier: {commit_info})"
     )
     
     service = MetadataService()
     
     try:
-        # Reconstruct IndexingStats from dict (Temporal serializes it as dict)
-        stats_dict = input_data["parse_result"]["stats"]
-        stats = IndexingStats(**stats_dict) if isinstance(stats_dict, dict) else stats_dict
-        
         snapshot_id = await service.persist_indexing_metadata(
             repo_id=input_data["repo_id"],
-            commit_sha=input_data["commit_sha"],
-            graph_result=input_data["parse_result"]["graph_result"],
-            stats=stats,
+            github_repo_id=input_data["github_repo_id"],
+            commit_sha=commit_sha,
         )
         
-        activity.logger.info(f"Created snapshot {snapshot_id}")
+        logger.info(f"Created snapshot {snapshot_id}")
         
         return {"status": "success", "snapshot_id": snapshot_id}
         
     except Exception as e:
-        activity.logger.error(f"Failed to persist metadata: {e}")
+        logger.error(f"Failed to persist metadata: {e}")
         raise ApplicationError(f"Metadata persistence failed: {e}") from e
 
 # Neo4j Knowledge Graph persistence activity
@@ -177,6 +192,7 @@ async def persist_kg_activity(input_data: dict) -> dict:
     Args:
         input_data: {
             "repo_id": str,
+            "github_repo_id": int,
             "github_repo_name": str,
             "graph_result": RepoGraphResult
         }
@@ -184,7 +200,7 @@ async def persist_kg_activity(input_data: dict) -> dict:
     Returns:
         {"nodes_created": int, "edges_created": int}
     """
-    activity.logger.info(
+    logger.info(
         f"Persisting KG for {input_data['github_repo_name']}"
     )
     
@@ -193,20 +209,26 @@ async def persist_kg_activity(input_data: dict) -> dict:
     try:
         activity.heartbeat("Starting Neo4j persistence")
         
+        # Deserialize nodes and edges from dicts back to proper Python objects
+        # (Temporal serializes dataclasses to dicts when passing between activities)
+        nodes = [_deserialize_node(n) for n in input_data["graph_result"]["nodes"]]
+        edges = [_deserialize_edge(e) for e in input_data["graph_result"]["edges"]]
+        
         result = await service.persist_kg(
             repo_id=input_data["repo_id"],
-            nodes=input_data["graph_result"].nodes,
-            edges=input_data["graph_result"].edges,
+            github_repo_id=input_data["github_repo_id"],
+            nodes=nodes,
+            edges=edges,
         )
         
-        activity.logger.info(
+        logger.info(
             f"Persisted {result.nodes_created} nodes, "
             f"{result.edges_created} edges to Neo4j"
         )
         
         return result.__dict__
     except Exception as e:
-        activity.logger.error(f"Failed to persist KG: {e}")
+        logger.error(f"Failed to persist KG: {e}")
         raise ApplicationError(f"Neo4j persistence failed: {e}") from e
     
 # Cleanup repo activity
@@ -221,7 +243,7 @@ async def cleanup_repo_activity(local_path: str) -> dict:
     Returns:
         {"status": "cleaned"}
     """
-    activity.logger.info(f"Cleaning up {local_path}")
+    logger.info(f"Cleaning up {local_path}")
     
     service = RepoCloneService()
     
@@ -230,7 +252,7 @@ async def cleanup_repo_activity(local_path: str) -> dict:
         return {"status": "cleaned"}
     except Exception as e:
         # Log but don't fail the workflow on cleanup errors
-        activity.logger.warning(f"Cleanup failed: {e}")
+        logger.warning(f"Cleanup failed: {e}")
         return {"status": "cleanup_failed", "error": str(e)}
 
 # Cleanup stale KG nodes activity
@@ -254,7 +276,7 @@ async def cleanup_stale_kg_nodes_activity(input_data: dict) -> dict:
     repo_id = input_data["repo_id"]
     ttl_days = input_data.get("ttl_days", 30)
     
-    activity.logger.info(
+    logger.info(
         f"Cleaning up stale KG nodes for repo {repo_id} (TTL: {ttl_days} days)"
     )
     
@@ -269,11 +291,11 @@ async def cleanup_stale_kg_nodes_activity(input_data: dict) -> dict:
             ttl_days=ttl_days,
         )
         
-        activity.logger.info(
+        logger.info(
             f"Cleaned up {nodes_deleted} stale nodes for repo {repo_id}"
         )
         
         return {"nodes_deleted": nodes_deleted}
     except Exception as e:
-        activity.logger.error(f"Failed to cleanup stale KG nodes: {e}")
+        logger.error(f"Failed to cleanup stale KG nodes: {e}")
         raise ApplicationError(f"Stale nodes cleanup failed: {e}") from e

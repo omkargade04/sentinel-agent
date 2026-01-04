@@ -56,7 +56,8 @@ async def register(
     )
     return {
         "status": "success", 
-        "message": token_data.get("message")
+        "message": token_data.get("message"),
+        "token_data": token_data
     }
 
 
@@ -78,7 +79,8 @@ async def login(
     )
     return {
         "status": "success", 
-        "message": "Logged in successfully"
+        "message": "Logged in successfully",
+        "token_data": token_data
     }
 
 
@@ -98,7 +100,11 @@ async def refresh(
         token_data.get("access_token"),
         token_data.get("refresh_token")
     )
-    return {"status": "success", "message": "Tokens refreshed"}
+    return {
+        "status": "success", 
+        "message": "Tokens refreshed",
+        "token_data": token_data
+    }
 
 
 @router.get("/whoami")

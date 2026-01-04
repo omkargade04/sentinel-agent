@@ -14,6 +14,7 @@ class Repository(Base):
     default_branch = Column(String(255), nullable=False)
     private = Column(Boolean, default=False)
     last_synced_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    last_indexed_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 

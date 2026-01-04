@@ -47,6 +47,7 @@ class KnowledgeGraphService:
     async def persist_kg(
         self,
         repo_id: str,
+        github_repo_id: int,
         nodes: list[KnowledgeGraphNode],
         edges: list[KnowledgeGraphEdge],
     ) -> PersistenceStats:
@@ -58,6 +59,7 @@ class KnowledgeGraphService:
         
         Args:
             repo_id: Repository identifier
+            gtihub_repo_id: Github Repo ID
             nodes: List of knowledge graph nodes to persist
             edges: List of knowledge graph edges to persist
             

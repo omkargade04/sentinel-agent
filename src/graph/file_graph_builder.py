@@ -64,6 +64,7 @@ class FileGraphBuilder:
     def __init__(
         self,
         repo_id: str,
+        github_repo_id: int,
         commit_sha: str | None = None,
         max_symbols: int = 500,
         chunk_size: int = 1000,
@@ -73,12 +74,14 @@ class FileGraphBuilder:
         
         Args:
             repo_id: Unique identifier for the repository (used in stable_symbol_id)
+            github_repo_id: GitHub repository ID.
             commit_sha: Current commit SHA (used in symbol_version_id for snapshot scoping)
             max_symbols: Maximum number of symbols to extract from a single source file
             chunk_size: The chunk size for text files (in characters)
             chunk_overlap: The overlap size between text chunks
         """
         self.repo_id = repo_id
+        self.github_repo_id = github_repo_id
         self.commit_sha = commit_sha
         self.max_symbols = max_symbols
         self.chunk_size = chunk_size

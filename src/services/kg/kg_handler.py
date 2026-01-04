@@ -121,20 +121,13 @@ async def batch_upsert_nodes(
         neo4j_node = kg_node.to_neo4j_node()
         
         # Determine node type and labels
+        # Note: We use key-based checks instead of isinstance() because
+        # TypedDict doesn't support runtime isinstance() checks in Python
         node_type: str
         node_properties: dict[str, Any]
         
-        if isinstance(neo4j_node, Neo4jFileNode):
-            node_type = "file"
-            node_properties = {
-                "node_id": str(kg_node.node_id),  # Ensure string type
-                "repo_id": repo_id,
-                "basename": neo4j_node["basename"],
-                "relative_path": neo4j_node["relative_path"],
-                "node_type": node_type,
-                "last_indexed_at": current_time,
-            }
-        elif isinstance(neo4j_node, Neo4jSymbolNode):
+        if "symbol_version_id" in neo4j_node:
+            # SymbolNode has symbol_version_id
             node_type = "symbol"
             node_properties = {
                 "node_id": str(kg_node.node_id),
@@ -154,7 +147,8 @@ async def batch_upsert_nodes(
                 "node_type": node_type,
                 "last_indexed_at": current_time,
             }
-        elif isinstance(neo4j_node, Neo4jTextNode):
+        elif "text" in neo4j_node:
+            # TextNode has text field
             node_type = "text"
             node_properties = {
                 "node_id": str(kg_node.node_id),
@@ -162,6 +156,17 @@ async def batch_upsert_nodes(
                 "text": neo4j_node["text"],
                 "start_line": neo4j_node["start_line"],
                 "end_line": neo4j_node["end_line"],
+                "node_type": node_type,
+                "last_indexed_at": current_time,
+            }
+        elif "basename" in neo4j_node:
+            # FileNode has basename
+            node_type = "file"
+            node_properties = {
+                "node_id": str(kg_node.node_id),  # Ensure string type
+                "repo_id": repo_id,
+                "basename": neo4j_node["basename"],
+                "relative_path": neo4j_node["relative_path"],
                 "node_type": node_type,
                 "last_indexed_at": current_time,
             }

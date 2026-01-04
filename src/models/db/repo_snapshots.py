@@ -8,7 +8,7 @@ class RepoSnapshot(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     repository_id = Column(UUID(as_uuid=True), ForeignKey('repositories.id'), nullable=True)
-    commit_sha = Column(String, nullable=False)
+    commit_sha = Column(String, nullable=True)  # Nullable - None means branch-based indexing
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     repository = relationship("Repository", back_populates="snapshots")

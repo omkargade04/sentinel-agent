@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     default_branch VARCHAR(255) NOT NULL,
     private BOOLEAN DEFAULT FALSE,
     last_synced_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_indexed_at TIMESTAMP NULL,  -- ADD THIS LINE
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS repositories (
 CREATE TABLE repo_snapshots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     repository_id UUID REFERENCES repositories(id),
-    commit_sha VARCHAR NOT NULL,
+    commit_sha VARCHAR NULL,  -- Nullable: NULL means branch-based indexing
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
