@@ -45,6 +45,9 @@ class UserNotFoundError(NotFoundException):
     def __init__(self, message: str = "User not found"):
         super().__init__(message=message)
 
+class RepoCloneError(Exception):
+    """Base exception for repository cloning errors."""
+    pass
 
 class AppExceptionHandler:
     def __init__(self, logger: Logger):
