@@ -82,14 +82,15 @@ async def batch_upsert_nodes(
     driver: AsyncDriver, 
     nodes: list[KnowledgeGraphNode], 
     repo_id: str, 
-    database: str = "neo4j"
+    database: str = "neo4j",
+    commit_sha: str | None = None,
 ) -> None:
     """Batch upsert nodes using UNWIND pattern with ON CREATE/ON MATCH.
     
     This function efficiently upserts a batch of knowledge graph nodes to Neo4j.
-    All nodes are tagged with the repository ID and get their `last_indexed_at`
-    timestamp refreshed (even if unchanged), ensuring cleanup queries can
-    accurately identify stale nodes.
+    All nodes are tagged with the repository ID, commit SHA, and get their 
+    `last_indexed_at` timestamp refreshed (even if unchanged), ensuring cleanup 
+    queries can accurately identify stale nodes.
     
     The function handles three node types:
     - FileNode: Labeled as :KGNode:FileNode
@@ -101,6 +102,7 @@ async def batch_upsert_nodes(
         nodes: List of KnowledgeGraphNode objects to upsert
         repo_id: Repository identifier (required for all nodes)
         database: Name of the Neo4j database (default: "neo4j")
+        commit_sha: Commit SHA being indexed (for provenance). If None, stored as NULL.
     
     Raises:
         neo4j.exceptions.Neo4jError: If the batch upsert operation fails
@@ -111,7 +113,8 @@ async def batch_upsert_nodes(
         logger.debug("No nodes to upsert")
         return
     
-    logger.info(f"Upserting {len(nodes)} nodes for repo_id={repo_id}")
+    commit_info = commit_sha[:8] if commit_sha else "NULL"
+    logger.info(f"Upserting {len(nodes)} nodes for repo_id={repo_id} (commit: {commit_info})")
 
     # Convert nodes to Neo4j node format and prepare for batch data
     batch_data: list[dict[str, Any]] = []
@@ -132,6 +135,7 @@ async def batch_upsert_nodes(
             node_properties = {
                 "node_id": str(kg_node.node_id),
                 "repo_id": repo_id,
+                "commit_sha": commit_sha,
                 "symbol_version_id": neo4j_node["symbol_version_id"],
                 "stable_symbol_id": neo4j_node["stable_symbol_id"],
                 "kind": neo4j_node["kind"],
@@ -153,6 +157,7 @@ async def batch_upsert_nodes(
             node_properties = {
                 "node_id": str(kg_node.node_id),
                 "repo_id": repo_id,
+                "commit_sha": commit_sha,
                 "text": neo4j_node["text"],
                 "start_line": neo4j_node["start_line"],
                 "end_line": neo4j_node["end_line"],
@@ -165,6 +170,7 @@ async def batch_upsert_nodes(
             node_properties = {
                 "node_id": str(kg_node.node_id),  # Ensure string type
                 "repo_id": repo_id,
+                "commit_sha": commit_sha,
                 "basename": neo4j_node["basename"],
                 "relative_path": neo4j_node["relative_path"],
                 "node_type": node_type,
@@ -199,11 +205,13 @@ async def batch_upsert_nodes(
                     n.basename = node.basename,
                     n.relative_path = node.relative_path,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 ON MATCH SET
                     n.basename = node.basename,
                     n.relative_path = node.relative_path,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 """
             elif node_type == "symbol":
@@ -224,6 +232,7 @@ async def batch_upsert_nodes(
                     n.docstring = node.docstring,
                     n.fingerprint = node.fingerprint,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 ON MATCH SET
                     n.symbol_version_id = node.symbol_version_id,
@@ -239,6 +248,7 @@ async def batch_upsert_nodes(
                     n.docstring = node.docstring,
                     n.fingerprint = node.fingerprint,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 """
             elif node_type == "text":
@@ -250,12 +260,14 @@ async def batch_upsert_nodes(
                     n.start_line = node.start_line,
                     n.end_line = node.end_line,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 ON MATCH SET
                     n.text = node.text,
                     n.start_line = node.start_line,
                     n.end_line = node.end_line,
                     n.node_type = node.node_type,
+                    n.commit_sha = node.commit_sha,
                     n.last_indexed_at = node.last_indexed_at
                 """
             else:
@@ -271,13 +283,14 @@ async def batch_upsert_edges(
     driver: AsyncDriver, 
     edges: list[KnowledgeGraphEdge], 
     repo_id: str, 
-    database: str = "neo4j"
+    database: str = "neo4j",
+    commit_sha: str | None = None,
 ) -> None:
     """Batch upsert edges using UNWIND pattern with MERGE.
     
     This function efficiently upserts a batch of knowledge graph edges to Neo4j.
-    All edges are tagged with the repository ID and relationships are created
-    between existing nodes using MERGE semantics (idempotent).
+    All edges are tagged with the repository ID, commit SHA, and relationships are 
+    created between existing nodes using MERGE semantics (idempotent).
     
     The function handles all edge types:
     - PARENT_OF: FileNode -> FileNode (directory hierarchy)
@@ -295,6 +308,7 @@ async def batch_upsert_edges(
         edges: List of KnowledgeGraphEdge objects to upsert
         repo_id: Repository identifier (required for all edges)
         database: Name of the Neo4j database (default: "neo4j")
+        commit_sha: Commit SHA being indexed (for provenance). If None, stored as NULL.
     
     Raises:
         neo4j.exceptions.Neo4jError: If the batch upsert operation fails
@@ -304,7 +318,8 @@ async def batch_upsert_edges(
         logger.debug("No edges to upsert")
         return
 
-    logger.info(f"Upserting {len(edges)} edges for repo_id={repo_id}")
+    commit_info = commit_sha[:8] if commit_sha else "NULL"
+    logger.info(f"Upserting {len(edges)} edges for repo_id={repo_id} (commit: {commit_info})")
     
     # Group edges by type and prepare batch data
     edges_by_type: dict[KnowledgeGraphEdgeType, list[dict[str, Any]]] = {}
@@ -319,6 +334,7 @@ async def batch_upsert_edges(
         # Build edge data dict
         edge_data = {
             "repo_id": repo_id,
+            "commit_sha": commit_sha,
             "source_node_id": source_node_id,
             "target_node_id": target_node_id,
         }
@@ -335,7 +351,7 @@ async def batch_upsert_edges(
             relationship_type = edge_type.value  # e.g., "HAS_FILE", "CALLS", etc.
             
             # Build the MERGE query
-            # All edges get repo_id property; CALLS/IMPORTS can optionally get confidence
+            # All edges get repo_id and commit_sha properties
             if edge_type in (KnowledgeGraphEdgeType.calls, KnowledgeGraphEdgeType.imports):
                 query = f"""
                 UNWIND $edges AS edge
@@ -343,9 +359,11 @@ async def batch_upsert_edges(
                 MATCH (target:KGNode {{repo_id: edge.repo_id, node_id: edge.target_node_id}})
                 MERGE (source)-[r:{relationship_type}]->(target)
                 ON CREATE SET
-                    r.repo_id = edge.repo_id
+                    r.repo_id = edge.repo_id,
+                    r.commit_sha = edge.commit_sha
                 ON MATCH SET
-                    r.repo_id = edge.repo_id
+                    r.repo_id = edge.repo_id,
+                    r.commit_sha = edge.commit_sha
             """
             else:
                 query = f"""
@@ -354,9 +372,11 @@ async def batch_upsert_edges(
                 MATCH (target:KGNode {{repo_id: edge.repo_id, node_id: edge.target_node_id}})
                 MERGE (source)-[r:{relationship_type}]->(target)
                 ON CREATE SET
-                    r.repo_id = edge.repo_id
+                    r.repo_id = edge.repo_id,
+                    r.commit_sha = edge.commit_sha
                 ON MATCH SET
-                    r.repo_id = edge.repo_id
+                    r.repo_id = edge.repo_id,
+                    r.commit_sha = edge.commit_sha
                 """
             logger.debug(f"Upserting {len(type_edges)} {edge_type.value} edges")
             result = await session.run(query, edges=type_edges)

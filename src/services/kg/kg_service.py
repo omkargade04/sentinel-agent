@@ -50,6 +50,7 @@ class KnowledgeGraphService:
         github_repo_id: int,
         nodes: list[KnowledgeGraphNode],
         edges: list[KnowledgeGraphEdge],
+        commit_sha: str | None = None,
     ) -> PersistenceStats:
         """Persist a complete knowledge graph for a repository.
         
@@ -57,11 +58,14 @@ class KnowledgeGraphService:
         It tracks statistics about created/updated nodes and edges by comparing
         counts before and after the upsert operations.
         
+        All nodes and edges are tagged with commit_sha for provenance tracking.
+        
         Args:
             repo_id: Repository identifier
             gtihub_repo_id: Github Repo ID
             nodes: List of knowledge graph nodes to persist
             edges: List of knowledge graph edges to persist
+            commit_sha: Commit SHA being indexed (for provenance). If None, will be stored as NULL.
             
         Returns:
             PersistenceStats containing counts of created/updated nodes and edges
@@ -70,8 +74,9 @@ class KnowledgeGraphService:
             neo4j.exceptions.Neo4jError: If persistence operations fail
             Exception: If any unexpected error occurs during persistence
         """
+        commit_info = commit_sha[:8] if commit_sha else "NULL"
         logger.info(
-            f"Persisting knowledge graph for repo_id={repo_id}: "
+            f"Persisting knowledge graph for repo_id={repo_id} (commit: {commit_info}): "
             f"{len(nodes)} nodes, {len(edges)} edges"
         )
         
@@ -88,7 +93,8 @@ class KnowledgeGraphService:
                     self.driver,
                     nodes,
                     repo_id,
-                    self.database
+                    self.database,
+                    commit_sha=commit_sha,
                 )
                 logger.debug(f"Upserted {len(nodes)} nodes for repo_id={repo_id}")
             
@@ -98,7 +104,8 @@ class KnowledgeGraphService:
                     self.driver,
                     edges,
                     repo_id,
-                    self.database
+                    self.database,
+                    commit_sha=commit_sha,
                 )
                 logger.debug(f"Upserted {len(edges)} edges for repo_id={repo_id}")
             
@@ -183,6 +190,61 @@ class KnowledgeGraphService:
             logger.error(error_msg, exc_info=True)
             raise
 
+    async def delete_repo_graph(
+        self,
+        repo_id: str,
+    ) -> int:
+        """Delete all nodes/edges for a repository before re-indexing (latest-only).
+        
+        This is part of the delete-then-write pattern for maintaining a single
+        latest-only knowledge graph per repository. Called automatically before
+        persisting a new graph to ensure no mixed state from multiple commits.
+        
+        Args:
+            repo_id: Repository identifier to delete
+            
+        Returns:
+            Number of nodes deleted
+            
+        Raises:
+            neo4j.exceptions.Neo4jError: If deletion operation fails
+            Exception: If any unexpected error occurs during deletion
+        """
+        logger.info(
+            f"Deleting existing knowledge graph for repo_id={repo_id} "
+            f"(delete-then-write for latest-only semantics)"
+        )
+        
+        try:
+            async with self.driver.session(database=self.database) as session:
+                # DETACH DELETE removes nodes and all their relationships
+                query = """
+                MATCH (n:KGNode {repo_id: $repo_id})
+                DETACH DELETE n
+                RETURN count(n) as deleted_count
+                """
+                
+                logger.debug(f"Executing graph deletion for repo_id={repo_id}")
+                result = await session.run(query, repo_id=repo_id)
+                
+                # Extract the deleted count from the result
+                record = await result.single()
+                deleted_count = record["deleted_count"] if record else 0
+                
+                logger.info(
+                    f"Deleted {deleted_count} nodes for repo_id={repo_id} "
+                    f"(preparing for new graph write)"
+                )
+                
+                return deleted_count
+                
+        except Exception as e:
+            error_msg = (
+                f"Failed to delete graph for repo_id={repo_id}: {str(e)}"
+            )
+            logger.error(error_msg, exc_info=True)
+            raise
+
     async def clear_repo_graph(
         self,
         repo_id: str,
@@ -192,6 +254,9 @@ class KnowledgeGraphService:
         This method performs a complete deletion of all knowledge graph nodes
         and edges for the specified repository. Use with caution as this operation
         cannot be undone.
+        
+        This is an alias for delete_repo_graph() but with scarier messaging for
+        manual/admin use cases. For normal indexing, use delete_repo_graph().
         
         Args:
             repo_id: Repository identifier to delete
@@ -207,36 +272,8 @@ class KnowledgeGraphService:
             f"Clearing entire knowledge graph for repo_id={repo_id} "
             f"(nuclear option - cannot be undone)"
         )
-        
-        try:
-            async with self.driver.session(database=self.database) as session:
-                # DETACH DELETE removes nodes and all their relationships
-                query = """
-                MATCH (n:KGNode {repo_id: $repo_id})
-                DETACH DELETE n
-                RETURN count(n) as deleted_count
-                """
-                
-                logger.debug(f"Executing full graph deletion for repo_id={repo_id}")
-                result = await session.run(query, repo_id=repo_id)
-                
-                # Extract the deleted count from the result
-                record = await result.single()
-                deleted_count = record["deleted_count"] if record else 0
-                
-                logger.info(
-                    f"Graph cleared for repo_id={repo_id}: "
-                    f"deleted {deleted_count} nodes"
-                )
-                
-                return deleted_count
-                
-        except Exception as e:
-            error_msg = (
-                f"Failed to clear graph for repo_id={repo_id}: {str(e)}"
-            )
-            logger.error(error_msg, exc_info=True)
-            raise
+        # Delegate to delete_repo_graph
+        return await self.delete_repo_graph(repo_id)
 
     async def _count_nodes(self, repo_id: str) -> int:
         """Count total nodes for a repository.

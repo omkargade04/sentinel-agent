@@ -5,7 +5,7 @@ Service for persisting indexing metadata to Postgres.
 import datetime
 import uuid
 from sqlalchemy.orm import Session
-from sqlalchemy import update
+from sqlalchemy import and_, update
 from src.core.database import SessionLocal
 from src.models.db.repositories import Repository
 from src.models.db.repo_snapshots import RepoSnapshot
@@ -55,7 +55,7 @@ class MetadataService:
             # Update repository last_indexed_at timestamp
             db.execute(
                 update(Repository)
-                .where(Repository.github_repo_id == github_repo_id and Repository.id == repo_id)
+                .where(and_(Repository.github_repo_id == github_repo_id, Repository.id == repo_id))
                 .values(last_indexed_at=datetime.datetime.utcnow())
             )
             
@@ -65,5 +65,38 @@ class MetadataService:
         except Exception as e:
             db.rollback()
             raise Exception(f"Failed to persist metadata: {e}") from e
+        finally:
+            db.close()
+            
+    async def get_latest_snapshot_sha(self, repo_id: str) -> str | None:
+        """
+        Get the commit_sha from the most recent snapshot for a repository.
+        
+        Used to skip re-indexing when the branch head hasn't changed.
+        
+        Args:
+            repo_id: Internal repository identifier (UUID)
+        
+        Returns:
+            commit_sha string if a snapshot exists, None if no snapshots or sha is NULL
+        """
+        db: Session = SessionLocal()
+        
+        try:
+            # Query latest snapshot by created_at descending
+            latest_snapshot = db.query(RepoSnapshot).filter(
+                RepoSnapshot.repository_id == repo_id
+            ).order_by(
+                RepoSnapshot.created_at.desc()
+            ).first()
+            
+            if latest_snapshot is None:
+                return None
+            
+            # Return commit_sha (may be None if snapshot was branch-based)
+            return latest_snapshot.commit_sha
+            
+        except Exception as e:
+            raise Exception(f"Failed to fetch latest snapshot: {e}") from e
         finally:
             db.close()

@@ -11,6 +11,124 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+# SHA precheck activity
+@activity.defn
+async def check_indexing_needed_activity(repo_request: dict) -> dict:
+    """
+    Check if indexing is needed by comparing current commit SHA with latest snapshot.
+    
+    This precheck prevents unnecessary re-indexing when the branch head hasn't changed.
+    
+    Args:
+        repo_request: {
+            "installation_id": int,
+            "repository": {
+                "github_repo_name": str,
+                "github_repo_id": int,
+                "repo_id": str,
+                "default_branch": str,
+                "repo_url": str
+            }
+        }
+    
+    Returns:
+        {
+            "indexing_needed": bool,
+            "current_sha": str | None,
+            "latest_snapshot_sha": str | None,
+            "reason": str
+        }
+    """
+    repo_info = repo_request['repository']
+    repo_id = repo_info['repo_id']
+    
+    logger.info(
+        f"Checking if indexing needed for {repo_info['github_repo_name']} "
+        f"(repo_id={repo_id})"
+    )
+    
+    # Step 1: Resolve current commit SHA from branch head
+    clone_service = RepoCloneService()
+    metadata_service = MetadataService()
+    
+    try:
+        token = await clone_service.helpers.generate_installation_token(repo_request['installation_id'])
+        # Use the same SHA resolution logic as clone
+        current_sha = await clone_service._resolve_commit_sha(
+            repo_full_name=repo_info['github_repo_name'],
+            default_branch=repo_info['default_branch'],
+            token=token,
+            repo_url=repo_info['repo_url'],
+        )
+    except Exception as e:
+        # If we can't resolve SHA, we must index (can't skip)
+        logger.warning(
+            f"Failed to resolve current SHA for {repo_info['github_repo_name']}: {e}. "
+            f"Will proceed with indexing."
+        )
+        return {
+            "indexing_needed": True,
+            "current_sha": None,
+            "latest_snapshot_sha": None,
+            "reason": "sha_resolution_failed"
+        }
+    
+    # Step 2: Get latest snapshot SHA from Postgres
+    try:
+        latest_snapshot_sha = await metadata_service.get_latest_snapshot_sha(repo_id)
+    except Exception as e:
+        logger.warning(
+            f"Failed to fetch latest snapshot for {repo_id}: {e}. "
+            f"Will proceed with indexing."
+        )
+        return {
+            "indexing_needed": True,
+            "current_sha": current_sha,
+            "latest_snapshot_sha": None,
+            "reason": "snapshot_query_failed"
+        }
+    
+    # Step 3: Compare SHAs
+    if latest_snapshot_sha is None:
+        # No previous snapshot - must index
+        logger.info(
+            f"No previous snapshot found for {repo_info['github_repo_name']}. "
+            f"Indexing required."
+        )
+        return {
+            "indexing_needed": True,
+            "current_sha": current_sha,
+            "latest_snapshot_sha": None,
+            "reason": "no_previous_snapshot"
+        }
+    
+    if current_sha == latest_snapshot_sha:
+        # SHAs match - skip indexing
+        logger.info(
+            f"Current SHA ({current_sha[:8]}) matches latest snapshot. "
+            f"Skipping indexing for {repo_info['github_repo_name']}."
+        )
+        return {
+            "indexing_needed": False,
+            "current_sha": current_sha,
+            "latest_snapshot_sha": latest_snapshot_sha,
+            "reason": "sha_unchanged"
+        }
+    
+    # SHAs differ - must index
+    logger.info(
+        f"SHA changed for {repo_info['github_repo_name']}: "
+        f"{latest_snapshot_sha[:8] if latest_snapshot_sha else 'None'} -> {current_sha[:8]}. "
+        f"Indexing required."
+    )
+    return {
+        "indexing_needed": True,
+        "current_sha": current_sha,
+        "latest_snapshot_sha": latest_snapshot_sha,
+        "reason": "sha_changed"
+    }
+
+
 # Clone repo activity
 @activity.defn
 async def clone_repo_activity(repo_request: dict) -> dict:
@@ -187,21 +305,32 @@ async def persist_metadata_activity(input_data: dict) -> dict:
 @activity.defn
 async def persist_kg_activity(input_data: dict) -> dict:
     """
-    Persist knowledge graph to Neo4j.
+    Persist knowledge graph to Neo4j using delete-then-write pattern.
+    
+    Deletes existing graph for the repo before writing new graph to enforce
+    latest-only semantics (no mixed state from multiple commits).
+    All nodes and edges are tagged with commit_sha for provenance.
     
     Args:
         input_data: {
             "repo_id": str,
             "github_repo_id": int,
             "github_repo_name": str,
-            "graph_result": RepoGraphResult
+            "graph_result": RepoGraphResult,
+            "commit_sha": str | None
         }
     
     Returns:
-        {"nodes_created": int, "edges_created": int}
+        {
+            "nodes_created": int,
+            "edges_created": int,
+            "nodes_deleted": int
+        }
     """
+    commit_sha = input_data.get("commit_sha")
+    commit_info = commit_sha[:8] if commit_sha else "NULL"
     logger.info(
-        f"Persisting KG for {input_data['github_repo_name']}"
+        f"Persisting KG for {input_data['github_repo_name']} (delete-then-write, commit: {commit_info})"
     )
     
     service = KnowledgeGraphService(driver=Neo4jConnection.get_driver(), database=settings.NEO4J_DATABASE)
@@ -209,24 +338,38 @@ async def persist_kg_activity(input_data: dict) -> dict:
     try:
         activity.heartbeat("Starting Neo4j persistence")
         
+        # Delete existing graph for this repo (latest-only enforcement)
+        deleted_count = await service.delete_repo_graph(
+            repo_id=input_data["repo_id"]
+        )
+        logger.info(
+            f"Deleted {deleted_count} existing nodes for {input_data['github_repo_name']}"
+        )
+        
         # Deserialize nodes and edges from dicts back to proper Python objects
         # (Temporal serializes dataclasses to dicts when passing between activities)
         nodes = [_deserialize_node(n) for n in input_data["graph_result"]["nodes"]]
         edges = [_deserialize_edge(e) for e in input_data["graph_result"]["edges"]]
         
+        # Persist new graph
         result = await service.persist_kg(
             repo_id=input_data["repo_id"],
             github_repo_id=input_data["github_repo_id"],
             nodes=nodes,
             edges=edges,
+            commit_sha=commit_sha,
         )
         
         logger.info(
             f"Persisted {result.nodes_created} nodes, "
-            f"{result.edges_created} edges to Neo4j"
+            f"{result.edges_created} edges to Neo4j for {input_data['github_repo_name']}"
         )
         
-        return result.__dict__
+        # Include deletion count in result
+        return {
+            **result.__dict__,
+            "nodes_deleted": deleted_count,
+        }
     except Exception as e:
         logger.error(f"Failed to persist KG: {e}")
         raise ApplicationError(f"Neo4j persistence failed: {e}") from e
