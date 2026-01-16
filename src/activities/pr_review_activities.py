@@ -251,33 +251,54 @@ async def build_seed_set_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         BuildSeedSetOutput with seed symbols and files
     """
+    from src.services.seed_generation import SeedSetBuilder
+    from src.models.schemas.pr_review.pr_patch import PRFilePatch
+    
     clone_path = input_data["clone_path"]
-    patches = input_data["patches"]
+    patches_data = input_data["patches"]
 
     logger.info(
-        f"[STUB] Building seed set from {len(patches)} patches at {clone_path}"
+        f"Building seed set from {len(patches_data)} patches at {clone_path}"
     )
 
-    # TODO Phase 3: Implement AST-based symbol extraction
-    # - pr_symbol_extractor = PRSymbolExtractor()
-    # - seed_symbols = []
-    # - for patch in patches:
-    # -     symbols = extractor.extract_symbols_for_hunks(file_path, clone_path, patch.hunks)
-    # -     seed_symbols.extend(symbols)
-
-    # Stub implementation
-    return {
-        "seed_set": SeedSetS0(
-            seed_symbols=[],
-            seed_files=[],
-            extraction_timestamp=datetime.now().isoformat()
-        ).model_dump(),
-        "stats": {
-            "files_processed": len(patches),
-            "symbols_extracted": 0,
-            "parsing_errors": 0
+    try:
+        # Convert dict patches to PRFilePatch objects
+        patches = [PRFilePatch(**p) if isinstance(p, dict) else p for p in patches_data]
+        
+        # Build seed set using AST analysis
+        builder = SeedSetBuilder(
+            clone_path=clone_path,
+            max_file_size_bytes=pr_review_settings.limits.max_file_size_bytes if hasattr(pr_review_settings.limits, 'max_file_size_bytes') else 1_000_000,
+            max_symbols_per_file=pr_review_settings.limits.max_symbols_per_file if hasattr(pr_review_settings.limits, 'max_symbols_per_file') else 200,
+        )
+        
+        seed_set, stats = builder.build_seed_set(patches)
+        
+        logger.info(
+            f"Built seed set: {seed_set.total_symbols} symbols from "
+            f"{stats.files_with_symbols} files, {len(seed_set.seed_files)} seed files, "
+            f"{stats.parse_errors} parse errors"
+        )
+        
+        return {
+            "seed_set": seed_set.model_dump(),
+            "stats": {
+                "files_processed": stats.files_processed,
+                "files_with_symbols": stats.files_with_symbols,
+                "files_skipped": stats.files_skipped,
+                "symbols_extracted": stats.total_symbols_extracted,
+                "symbols_overlapping": stats.total_symbols_overlapping,
+                "parse_errors": stats.parse_errors,
+                "unsupported_languages": stats.unsupported_languages,
+            }
         }
-    }
+        
+    except Exception as e:
+        logger.error(
+            f"Failed to build seed set at {clone_path}: {e}",
+            exc_info=True
+        )
+        raise
 
 
 # ============================================================================

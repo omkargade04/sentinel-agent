@@ -142,6 +142,10 @@ class PRReviewLimits(BaseModel):
         ge=0.0,
         le=1.0
     )
+    
+    max_symbols_per_file: int = 200
+    max_file_size_bytes: int = 1_000_000  # 1MB
+    supported_languages: list[str] = ["python", "javascript", "typescript"]
 
     class Config:
         schema_extra = {
