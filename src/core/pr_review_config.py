@@ -143,6 +143,44 @@ class PRReviewLimits(BaseModel):
         le=1.0
     )
     
+        # KG candidate retrieval limits
+    max_kg_symbol_matches_per_seed: int = Field(
+        default=5,
+        description="Maximum KG symbol matches to retrieve per seed symbol",
+        ge=1,
+        le=20
+    )
+    max_contains_per_seed: int = Field(
+        default=5,
+        description="Maximum CONTAINS_SYMBOL neighbors per matched symbol",
+        ge=1,
+        le=20
+    )
+    max_import_files_per_seed_file: int = Field(
+        default=10,
+        description="Maximum import neighbors (files) to retrieve per seed file",
+        ge=1,
+        le=30
+    )
+    max_kg_docs_total: int = Field(
+        default=20,
+        description="Maximum documentation text nodes to retrieve from KG",
+        ge=1,
+        le=50
+    )
+    max_seeds_to_process: int = Field(
+        default=100,
+        description="Maximum seed symbols to process for KG queries (prevents runaway)",
+        ge=10,
+        le=500
+    )
+    max_total_kg_candidates: int = Field(
+        default=500,
+        description="Hard ceiling on total KG candidates returned",
+        ge=50,
+        le=2000
+    )
+    
     max_symbols_per_file: int = 200
     max_file_size_bytes: int = 1_000_000  # 1MB
     supported_languages: list[str] = ["python", "javascript", "typescript"]
@@ -153,7 +191,9 @@ class PRReviewLimits(BaseModel):
                 "max_changed_files": 50,
                 "max_context_items": 35,
                 "max_total_characters": 120000,
-                "max_findings_per_review": 20
+                "max_findings_per_review": 20,
+                "max_kg_symbol_matches_per_seed": 5,
+                "max_total_kg_candidates": 500
             }
         }
 

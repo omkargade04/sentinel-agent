@@ -301,6 +301,105 @@ async def build_seed_set_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
         raise
 
 
+@activity.defn
+async def retrieve_kg_candidates_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Retrieve context candidates from Neo4j Knowledge Graph.
+
+    Phase 4 Implementation:
+    - Query KG for seed symbol matches
+    - Expand symbol neighbors (callers, callees, contains)
+    - Retrieve import neighborhood for seed files
+    - Fetch relevant documentation nodes
+
+    Args:
+        input_data: Contains repo_id, seed_set
+
+    Returns:
+        KG candidates with drift metadata and stats
+    """
+    from src.models.schemas.pr_review.seed_set import SeedSetS0
+
+    repo_id = input_data["repo_id"]
+    pr_head_sha = input_data["pr_head_sha"]
+    seed_set_data = input_data["seed_set"]
+
+    logger.info(f"Retrieving KG candidates for repo {repo_id}")
+
+    # Reconstruct seed set from serialized data
+    seed_set = SeedSetS0(**seed_set_data) if isinstance(seed_set_data, dict) else seed_set_data
+
+    # Initialize result
+    result = {
+        "kg_candidates": None,
+        "kg_commit_sha": None,
+        "has_drift": False,
+        "stats": {
+            "kg_symbols_found": 0,
+            "kg_symbols_missing": 0,
+            "total_candidates": 0,
+            "retrieval_duration_ms": 0,
+        },
+        "warnings": []
+    }
+
+    # Early exit if no seeds
+    if not seed_set.seed_symbols and not seed_set.seed_files:
+        logger.info(f"No seeds for repo {repo_id}, skipping KG retrieval")
+        return result
+
+    try:
+        from src.core.neo4j import get_neo4j_driver
+        from src.services.kg.kg_query_service import KGQueryService
+        from src.services.pr_review.kg_candidate_retriever import KGCandidateRetriever
+
+        driver = get_neo4j_driver()
+        if not driver:
+            result["warnings"].append("neo4j_driver_unavailable")
+            logger.warning("Neo4j driver not available, returning empty candidates")
+            return result
+
+        kg_service = KGQueryService(driver)
+        retriever = KGCandidateRetriever(kg_service)
+
+        kg_result = await retriever.retrieve_candidates(
+            repo_id=repo_id,
+            seed_set=seed_set,
+        )
+
+        # Populate result
+        result["kg_candidates"] = kg_result.to_dict()
+        result["kg_commit_sha"] = kg_result.kg_commit_sha
+        result["stats"] = {
+            "kg_symbols_found": kg_result.stats.kg_symbols_found,
+            "kg_symbols_missing": kg_result.stats.kg_symbols_missing,
+            "total_candidates": kg_result.stats.total_candidates,
+            "retrieval_duration_ms": kg_result.stats.retrieval_duration_ms,
+        }
+        result["warnings"] = kg_result.warnings
+
+        # Check for drift
+        if kg_result.kg_commit_sha and kg_result.kg_commit_sha != pr_head_sha:
+            result["has_drift"] = True
+            result["warnings"].append(
+                f"kg_drift: KG at {kg_result.kg_commit_sha[:8]}, PR head at {pr_head_sha[:8]}"
+            )
+            logger.warning(
+                f"KG drift detected: KG={kg_result.kg_commit_sha[:8]}, PR={pr_head_sha[:8]}"
+            )
+
+        logger.info(
+            f"KG retrieval complete: {kg_result.stats.total_candidates} candidates, "
+            f"{kg_result.stats.kg_symbols_found} symbols found"
+        )
+
+    except Exception as e:
+        result["warnings"].append(f"kg_retrieval_error: {type(e).__name__}")
+        logger.error(f"KG candidate retrieval failed: {e}", exc_info=True)
+        # Graceful degradation - return empty candidates
+
+    return result
+
 # ============================================================================
 # PHASE 2: CONTEXT ASSEMBLY ACTIVITIES (LangGraph)
 # ============================================================================
@@ -329,24 +428,41 @@ async def retrieve_and_assemble_context_activity(input_data: Dict[str, Any]) -> 
     Returns:
         ContextAssemblyOutput with bounded context pack
     """
+    from src.models.schemas.pr_review.seed_set import SeedSetS0
+    from src.models.schemas.pr_review.pr_patch import PRFilePatch
+
+    # Extract inputs
     repo_id = input_data["repo_id"]
-    seed_set = input_data["seed_set"]
+    github_repo_name = input_data["github_repo_name"]
+    pr_number = input_data["pr_number"]
+    pr_head_sha = input_data["pr_head_sha"]
+    pr_base_sha = input_data.get("pr_base_sha", "")
+    seed_set_data = input_data["seed_set"]
+    kg_candidates = input_data.get("kg_candidates")  # From Phase 4 activity
+    kg_commit_sha = input_data.get("kg_commit_sha")
+    patches_data = input_data["patches"]
     limits = input_data["limits"]
 
     logger.info(
-        f"[STUB] Assembling context for repo {repo_id} with {len(seed_set.get('seed_symbols', []))} seed symbols"
+        f"Assembling context for {github_repo_name}#{pr_number} "
+        f"with {len(seed_set_data.get('seed_symbols', []))} seeds, "
+        f"{kg_candidates.get('stats', {}).get('total_candidates', 0) if kg_candidates else 0} KG candidates"
     )
+
+    # Reconstruct typed objects
+    seed_set = SeedSetS0(**seed_set_data) if isinstance(seed_set_data, dict) else seed_set_data
+    patches = [PRFilePatch(**p) if isinstance(p, dict) else p for p in patches_data]
 
     # TODO Phase 5: Implement LangGraph context assembly
     # - context_graph = create_context_assembly_graph()
-    # - tools = [kg_find_symbol_tool, kg_expand_neighbors_tool, extract_snippet_tool]
     # - result = await context_graph.ainvoke({
     # -     "seed_set": seed_set,
-    # -     "repo_id": repo_id,
-    # -     "constraints": limits
+    # -     "kg_candidates": kg_candidates,
+    # -     "patches": patches,
+    # -     "limits": limits
     # - })
 
-    # Stub implementation - create ContextPackLimits from config
+    # Build ContextPack with Phase 4 data (stub for Phase 5)
     context_limits = ContextPackLimits(
         max_context_items=limits.get("max_context_items", 35),
         max_total_characters=limits.get("max_total_characters", 120_000),
@@ -355,21 +471,26 @@ async def retrieve_and_assemble_context_activity(input_data: Dict[str, Any]) -> 
         max_hops=limits.get("max_hops", 1),
         max_neighbors_per_seed=limits.get("max_callers_per_seed", 8),
     )
+    
+    kg_stats = kg_candidates.get("stats", {}) if kg_candidates else {}
     context_stats = ContextPackStats(
-        total_items=0,
-        total_characters=0,
+        total_items=kg_stats.get("total_candidates", 0),
+        total_characters=0,  # Will be calculated in Phase 5
         items_by_type={},
         items_by_source={},
+        kg_symbols_found=kg_stats.get("kg_symbols_found", 0),
+        kg_symbols_missing=kg_stats.get("kg_symbols_missing", 0),
     )
     context_pack = ContextPack(
         repo_id=uuid.UUID(repo_id),
-        github_repo_name="stub/repo",
-        pr_number=123,
-        head_sha="a" * 40,
-        base_sha="b" * 40,
-        patches=[],
-        seed_set=SeedSetS0(),
-        context_items=[],
+        github_repo_name=github_repo_name,
+        pr_number=pr_number,
+        head_sha=pr_head_sha,
+        base_sha=pr_base_sha,
+        kg_commit_sha=kg_commit_sha,
+        patches=[p.model_dump() if hasattr(p, 'model_dump') else p for p in patches],
+        seed_set=seed_set,
+        context_items=[],  # Will be populated in Phase 5
         limits=context_limits,
         stats=context_stats,
         assembly_timestamp=datetime.now().isoformat(),
@@ -378,11 +499,9 @@ async def retrieve_and_assemble_context_activity(input_data: Dict[str, Any]) -> 
     return {
         "context_pack": context_pack.model_dump(),
         "assembly_stats": {
-            "neo4j_queries": 0,
-            "kg_symbols_found": 0,
-            "kg_symbols_missing": 0,
-            "context_items_generated": 0,
-            "items_truncated": 0
+            "kg_candidates_received": kg_stats.get("total_candidates", 0),
+            "context_items_generated": 0,  # Phase 5
+            "items_truncated": 0,  # Phase 5
         },
         "warnings": []
     }
@@ -606,14 +725,17 @@ PR_REVIEW_ACTIVITIES = [
     fetch_pr_context_activity,
     clone_pr_head_activity,
     build_seed_set_activity,
+    
+    # Phase 2: KG retrieval
+    retrieve_kg_candidates_activity,
 
-    # Phase 2: Context assembly (LangGraph)
+    # Phase 3: Context assembly (LangGraph)
     retrieve_and_assemble_context_activity,
 
-    # Phase 3: Review generation (LangGraph)
+    # Phase 4: Review generation (LangGraph)
     generate_review_activity,
 
-    # Phase 4: Publishing
+    # Phase 5: Publishing
     anchor_and_publish_activity,
 
     # Cleanup

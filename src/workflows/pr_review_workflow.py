@@ -22,6 +22,7 @@ from src.activities.pr_review_activities import (
     fetch_pr_context_activity,
     clone_pr_head_activity,
     build_seed_set_activity,
+    retrieve_kg_candidates_activity,
     retrieve_and_assemble_context_activity,
     generate_review_activity,
     anchor_and_publish_activity,
@@ -104,6 +105,7 @@ class PRReviewWorkflow:
         pr_context = None
         clone_result = None
         seed_set_result = None
+        kg_result = None
         context_result = None
         review_result = None
         publish_result = None
@@ -162,6 +164,31 @@ class PRReviewWorkflow:
                 f"Built seed set: {seed_set.get('total_symbols', len(seed_set.get('seed_symbols', [])))} symbols, "
                 f"{seed_set.get('total_files', len(set(s.get('file_path') for s in seed_set.get('seed_symbols', []))))} files affected"
             )
+            
+            # ====================================================================
+            # KG CANDIDATE RETRIEVAL (Neo4j)
+            # ====================================================================
+
+            logger.info("Starting KG candidate retrieval")
+
+            kg_input = {
+                "repo_id": str(request.repo_id),
+                "pr_head_sha": request.head_sha,
+                "seed_set": seed_set,
+            }
+            kg_result = await workflow.execute_activity(
+                retrieve_kg_candidates_activity,
+                kg_input,
+                start_to_close_timeout=timedelta(
+                    seconds=pr_review_settings.timeouts.context_assembly_timeout // 2  # Half of context timeout
+                ),
+                retry_policy=standard_retry
+            )
+            logger.info(
+                f"KG retrieval: {kg_result['stats']['total_candidates']} candidates, "
+                f"{kg_result['stats']['kg_symbols_found']} symbols found, "
+                f"drift={kg_result['has_drift']}"
+            )
 
             # ====================================================================
             # PHASE 2: INTELLIGENT CONTEXT ASSEMBLY (LangGraph)
@@ -171,15 +198,21 @@ class PRReviewWorkflow:
 
             context_input = {
                 "repo_id": str(request.repo_id),
+                "github_repo_name": request.github_repo_name,
+                "pr_number": request.pr_number,
+
+                "pr_head_sha": request.head_sha,
+                "pr_base_sha": request.base_sha,
+
                 "seed_set": seed_set,
+                "kg_candidates": kg_result["kg_candidates"],  # From Phase 4
+                "kg_commit_sha": kg_result["kg_commit_sha"],  # From Phase 4
+                "patches": pr_context["patches"],
                 "clone_path": clone_path,
+
                 "limits": pr_review_settings.limits.model_dump(),
-                "kg_query_config": {
-                    "max_hops": pr_review_settings.limits.max_hops,
-                    "max_callers_per_seed": pr_review_settings.limits.max_callers_per_seed,
-                    "max_callees_per_seed": pr_review_settings.limits.max_callees_per_seed,
-                }
             }
+            
             context_result = await workflow.execute_activity(
                 retrieve_and_assemble_context_activity,
                 context_input,
@@ -294,6 +327,8 @@ class PRReviewWorkflow:
                 error_stage = "clone_pr_head"
             elif not seed_set_result:
                 error_stage = "build_seed_set"
+            elif not kg_result:
+                error_stage = "kg_retrieval" 
             elif not context_result:
                 error_stage = "context_assembly"
             elif not review_result:
