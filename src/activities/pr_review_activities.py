@@ -763,18 +763,13 @@ async def generate_review_activity(input_data: Dict[str, Any]) -> Dict[str, Any]
     """
     AI-powered review generation using LangGraph for iterative analysis.
 
-    Phase 6 Implementation:
-    - LangGraph review generation workflow
-    - Multi-step LLM reasoning with validation loops
-    - Structured output with schema enforcement
-    - Confidence scoring and quality metrics
-
-    LangGraph nodes:
-    - context_analyzer: Deep analysis of changes and patterns
-    - finding_generator: Generate potential findings via LLM
-    - finding_validator: Validate findings against context
-    - suggestion_crafter: Create actionable fix suggestions
-    - output_formatter: JSON schema validation
+    This activity orchestrates the 6-node review generation LangGraph workflow:
+    1. ContextAnalyzerNode: Analyze context for patterns and focus areas
+    2. DiffProcessorNode: Build diff mappings for anchoring
+    3. PromptBuilderNode: Construct anti-hallucination LLM prompt
+    4. LLMGeneratorNode: Generate findings via LLM
+    5. FindingAnchorerNode: Anchor findings to diff positions
+    6. QualityValidatorNode: Filter, validate, produce final output
 
     Args:
         input_data: Contains context_pack for LLM analysis
@@ -782,50 +777,158 @@ async def generate_review_activity(input_data: Dict[str, Any]) -> Dict[str, Any]
     Returns:
         ReviewGenerationOutput with structured LLM findings
     """
+    from src.services.pr_review.review_generation import (
+        ReviewGenerationService,
+        ReviewGenerationConfig,
+    )
+    import time
+
     context_pack = input_data["context_pack"]
+    patches = context_pack.get("patches", [])
+
+    # Extract PR metadata for logging
+    pr_info = f"{context_pack.get('github_repo_name', 'unknown')}#{context_pack.get('pr_number', '?')}"
+    context_items_count = len(context_pack.get("context_items", []))
 
     logger.info(
-        f"[STUB] Generating review for context pack with {context_pack.get('stats', {}).get('total_items', 0)} items"
+        f"Starting review generation for {pr_info} with "
+        f"{context_items_count} context items and {len(patches)} patches"
     )
 
-    # TODO Phase 6: Implement LangGraph review generation
-    # - review_graph = create_review_generation_graph()
-    # - llm_client = create_llm_client(pr_review_settings.llm)
-    # - result = await review_graph.ainvoke({
-    # -     "context_pack": context_pack,
-    # -     "llm_config": pr_review_settings.llm.dict()
-    # - })
+    start_time = time.time()
 
-    # Stub implementation
-    review_output = LLMReviewOutput(
-        findings=[],
-        summary="Stub review summary - actual implementation in Phase 6",
-        total_findings=0,
-        high_confidence_findings=0,
-        review_timestamp=datetime.now().isoformat()
-    )
+    try:
+        # Initialize review generation service with configuration from settings
+        config = ReviewGenerationConfig(
+            llm_provider=pr_review_settings.llm.provider,
+            llm_model=pr_review_settings.llm.model,
+            llm_temperature=0.1,  # Low temperature for consistent output
+            max_tokens=pr_review_settings.llm.max_tokens,
+            max_findings=pr_review_settings.limits.max_findings,
+            min_confidence=0.5,
+            workflow_timeout_seconds=pr_review_settings.timeouts.review_generation_timeout,
+        )
 
-    return {
-        "review_output": review_output.model_dump(),
-        "generation_stats": {
-            "total_findings_generated": 0,
-            "high_confidence_findings": 0,
-            "anchored_findings": 0,
-            "unanchored_findings": 0,
-            "generation_duration_ms": 0,
-            "model_used": pr_review_settings.llm.model,
-            "token_usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0
-            }
-        },
-        "llm_usage": {
-            "total_requests": 0,
-            "failed_requests": 0,
-            "total_tokens": 0
+        service = ReviewGenerationService(config=config)
+
+        # Build limits from config
+        limits = {
+            "max_findings": config.max_findings,
+            "min_confidence": config.min_confidence,
+            "max_tokens": config.max_tokens,
         }
-    }
+
+        # Execute review generation via the LangGraph workflow
+        result = await service.generate_review_from_dict(
+            context_pack_dict=context_pack,
+            patches_dict=patches,
+            limits=limits
+        )
+
+        generation_duration_ms = int((time.time() - start_time) * 1000)
+
+        # Extract findings from result
+        # Note: ReviewGenerationGraph._format_successful_result returns
+        # findings/summary at top level, not under final_review_output
+        findings = result.get("findings", [])
+        summary = result.get("summary", "Review generated successfully.")
+
+        # Build LLMReviewOutput
+        review_output = LLMReviewOutput(
+            findings=findings,
+            summary=summary,
+            patterns=result.get("patterns"),
+            recommendations=result.get("recommendations"),
+            total_findings=result.get("total_findings", len(findings)),
+            high_confidence_findings=result.get("stats", {}).get("high_confidence", 0),
+            review_timestamp=datetime.now().isoformat()
+        )
+
+        # Extract stats from result
+        stats = result.get("stats", {})
+        generation_metrics = result.get("generation_metrics", {})
+
+        # Calculate anchored vs unanchored
+        anchored_count = sum(1 for f in findings if f.get("hunk_id"))
+        unanchored_count = len(findings) - anchored_count
+
+        logger.info(
+            f"Review generation completed for {pr_info}: "
+            f"{len(findings)} findings ({anchored_count} anchored) "
+            f"in {generation_duration_ms}ms"
+        )
+
+        return {
+            "review_output": review_output.model_dump(),
+            "generation_stats": {
+                "total_findings_generated": len(findings),
+                "high_confidence_findings": sum(1 for f in findings if f.get("confidence", 0) >= 0.7),
+                "anchored_findings": anchored_count,
+                "unanchored_findings": unanchored_count,
+                "confidence_rate": (
+                    sum(1 for f in findings if f.get("confidence", 0) >= 0.7) / max(len(findings), 1) * 100
+                ),
+                "generation_duration_ms": generation_duration_ms,
+                "model_used": stats.get("model_used", config.llm_model),
+                "severity_breakdown": {
+                    "blocker_count": stats.get("blocker_count", 0),
+                    "high_count": stats.get("high_count", 0),
+                    "medium_count": stats.get("medium_count", 0),
+                    "low_count": stats.get("low_count", 0),
+                    "nit_count": stats.get("nit_count", 0),
+                },
+            },
+            "llm_usage": {
+                "total_requests": 1,
+                "failed_requests": 0 if result.get("success", True) else 1,
+                "total_tokens": generation_metrics.get("cost", {}).get("total_tokens", 0) if generation_metrics else 0
+            },
+            "workflow_metadata": result.get("workflow_metadata", {}),
+            "quality_metrics": result.get("quality_metrics", {}),
+            "fallback_used": result.get("fallback_used", False),
+        }
+
+    except Exception as e:
+        generation_duration_ms = int((time.time() - start_time) * 1000)
+
+        logger.error(
+            f"Review generation failed for {pr_info}: {e}",
+            exc_info=True
+        )
+
+        # Return graceful degradation output
+        review_output = LLMReviewOutput(
+            findings=[],
+            summary=f"Review generation failed: {str(e)[:200]}",
+            total_findings=0,
+            high_confidence_findings=0,
+            review_timestamp=datetime.now().isoformat()
+        )
+
+        return {
+            "review_output": review_output.model_dump(),
+            "generation_stats": {
+                "total_findings_generated": 0,
+                "high_confidence_findings": 0,
+                "anchored_findings": 0,
+                "unanchored_findings": 0,
+                "confidence_rate": 0.0,
+                "generation_duration_ms": generation_duration_ms,
+                "model_used": pr_review_settings.llm.model,
+                "token_usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                },
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            "llm_usage": {
+                "total_requests": 1,
+                "failed_requests": 1,
+                "total_tokens": 0
+            },
+        }
 
 
 # ============================================================================
