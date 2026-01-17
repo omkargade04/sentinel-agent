@@ -168,33 +168,46 @@ class KGCandidateRetriever:
         seen_node_ids: Set[str],
     ) -> None:
         """
-        Process seed symbols to find KG symbol matches and neighbors.
+        Process seed symbols to find KG symbol matches and neighbors using batch optimization.
         """
         max_matches_per_seed = getattr(self._limits, "max_kg_symbol_matches_per_seed", 5)
         max_callers = self._limits.max_callers_per_seed
         max_callees = self._limits.max_callees_per_seed
-        
-        for seed in seed_symbols:
+
+        if not seed_symbols:
+            return
+
+        # Prepare batch symbol lookup requests to fix N+1 problem
+        symbol_requests = []
+        for i, seed in enumerate(seed_symbols):
+            symbol_requests.append({
+                "repo_id": repo_id,
+                "file_path": seed.file_path,
+                "name": seed.name,
+                "kind": seed.kind.value if hasattr(seed.kind, "value") else seed.kind,
+                "qualified_name": seed.qualified_name,
+                "fingerprint": seed.fingerprint,
+                "seed_index": i,  # Track original seed for mapping results
+            })
+
+        # Execute batch symbol lookup
+        batch_results = await self._kg.batch_find_symbols(symbol_requests, max_matches_per_seed)
+
+        # Process batch results
+        for request_index, matches in batch_results.items():
+            if request_index >= len(seed_symbols):
+                continue
+
+            seed = seed_symbols[request_index]
             result.stats.seed_symbols_processed += 1
-            
-            # Find KG symbol matches
-            matches = await self._kg.find_symbol(
-                repo_id=repo_id,
-                file_path=seed.file_path,
-                name=seed.name,
-                kind=seed.kind.value if hasattr(seed.kind, "value") else seed.kind,
-                qualified_name=seed.qualified_name,
-                fingerprint=seed.fingerprint,
-                limit=max_matches_per_seed,
-            )
-            
+
             if not matches:
                 result.stats.kg_symbols_missing += 1
                 logger.debug(
                     f"No KG match for seed symbol: {seed.file_path}:{seed.name}"
                 )
                 continue
-            
+
             # Track matches (dedupe by node_id)
             for match in matches:
                 node_id = match.get("node_id")
@@ -216,6 +229,16 @@ class KGCandidateRetriever:
                         repo_id, node_id, max_callers, max_callees,
                         result, seen_node_ids
                     )
+
+        # Process any remaining seeds that weren't found in batch results
+        processed_indices = set(batch_results.keys())
+        for i, seed in enumerate(seed_symbols):
+            if i not in processed_indices:
+                result.stats.seed_symbols_processed += 1
+                result.stats.kg_symbols_missing += 1
+                logger.debug(
+                    f"No KG match for seed symbol: {seed.file_path}:{seed.name}"
+                )
                     
     async def _expand_symbol_neighbors(
         self,

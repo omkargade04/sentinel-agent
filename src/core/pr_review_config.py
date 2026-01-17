@@ -239,6 +239,20 @@ class PRReviewTimeouts(BaseModel):
         le=300
     )
 
+    # Neo4j query timeouts
+    neo4j_query_timeout: int = Field(
+        default=30,
+        description="Neo4j individual query timeout",
+        ge=5,
+        le=300
+    )
+    neo4j_connection_timeout: int = Field(
+        default=60,
+        description="Neo4j connection acquisition timeout",
+        ge=5,
+        le=180
+    )
+
     # Phase 2 specific timeouts
     github_api_timeout: int = Field(
         default=30,
@@ -540,6 +554,41 @@ class PRReviewSettings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(
         default=None,
         description="Anthropic API key"
+    )
+
+    # ============================================================================
+    # NEO4J CONFIGURATION
+    # ============================================================================
+
+    neo4j_uri: str = Field(
+        default="bolt://localhost:7687",
+        description="Neo4j connection URI"
+    )
+    neo4j_username: str = Field(
+        default="neo4j",
+        description="Neo4j username"
+    )
+    neo4j_password: str = Field(
+        default="password",
+        description="Neo4j password"
+    )
+    neo4j_database: str = Field(
+        default="neo4j",
+        description="Neo4j database name"
+    )
+
+    # Neo4j connection pool settings
+    neo4j_max_pool_size: int = Field(
+        default=100,
+        description="Maximum Neo4j connection pool size",
+        ge=1,
+        le=1000
+    )
+    neo4j_max_connection_lifetime: int = Field(
+        default=3600,
+        description="Maximum Neo4j connection lifetime in seconds",
+        ge=60,
+        le=86400
     )
 
     # ============================================================================
