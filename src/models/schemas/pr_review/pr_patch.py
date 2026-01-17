@@ -24,7 +24,7 @@ class PRHunk(BaseModel):
     header: str = Field(
         ...,
         description="Hunk header in format @@ -a,b +c,d @@",
-        regex=r'@@\s*-\d+(?:,\d+)?\s*\+\d+(?:,\d+)?\s*@@'
+        pattern=r'@@\s*-\d+(?:,\d+)?\s*\+\d+(?:,\d+)?\s*@@'
     )
 
     # Line range information (from hunk header)

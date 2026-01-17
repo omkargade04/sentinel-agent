@@ -6,7 +6,7 @@ The context pack includes all relevant information for generating code reviews.
 """
 
 from uuid import UUID
-from pydantic import BaseModel, Field, validator, computed_field, root_validator
+from pydantic import BaseModel, Field, validator, computed_field, model_validator
 from typing import List, Optional, Dict, Any, Literal
 from enum import Enum
 from .seed_set import SeedSetS0
@@ -289,12 +289,12 @@ class ContextPack(BaseModel):
             raise ValueError('Context item IDs must be unique')
         return v
 
-    @root_validator
-    def validate_context_items_limits(cls, values):
+    @model_validator(mode='after')
+    def validate_context_items_limits(self):
         """Validate that context items respect hard limits (runs after all fields set)."""
-        context_items = values.get('context_items', [])
-        limits = values.get('limits')
-        
+        context_items = self.context_items
+        limits = self.limits
+
         if limits and context_items:
             if len(context_items) > limits.max_context_items:
                 raise ValueError(f'Too many context items: {len(context_items)} > {limits.max_context_items}')
@@ -303,7 +303,7 @@ class ContextPack(BaseModel):
             if total_chars > limits.max_total_characters:
                 raise ValueError(f'Context too large: {total_chars} chars > {limits.max_total_characters}')
 
-        return values
+        return self
 
     @computed_field
     @property

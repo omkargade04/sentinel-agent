@@ -22,7 +22,7 @@ class PRReviewRequest(BaseModel):
     github_repo_name: str = Field(
         ...,
         description="Repository name in owner/repo format",
-        regex=r'^[^/]+/[^/]+$'
+        pattern=r'^[^/]+/[^/]+$'
     )
 
     # PR identification

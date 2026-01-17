@@ -29,6 +29,11 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
 
 
+class ContextRankingStrategy(str, Enum):
+    """Context ranking strategy (only rule-based is supported)."""
+    RULE_BASED = "rule_based"
+
+
 class PRReviewLimits(BaseModel):
     """Hard limits configuration for PR review processing."""
 
@@ -444,13 +449,39 @@ class LangGraphConfig(BaseModel):
     enable_checkpointing: bool = True
     recursion_limit: int = 25
 
+class ContextAssemblyConfig(BaseModel):
+    """Context assembly configuration using rule-based ranking."""
+
+    # Rule-based ranking configuration
+    rule_based_min_threshold: float = Field(
+        default=0.1,
+        description="Minimum relevance threshold for ranking",
+        ge=0.0,
+        le=1.0
+    )
+
+    # Deduplication configuration
+    max_duplicate_similarity: float = Field(
+        default=0.85,
+        description="Maximum similarity threshold for deduplication",
+        ge=0.5,
+        le=1.0
+    )
+
+    # Workflow configuration
+    workflow_timeout_seconds: int = Field(
+        default=300,
+        description="Maximum time for context assembly workflow",
+        ge=30,
+        le=600
+    )
+
 class ContextAssemblyLimits(BaseModel):
     """Hard limits for context assembly."""
     max_context_items: int = 35
     max_total_characters: int = 120_000
     max_lines_per_snippet: int = 120
     max_chars_per_item: int = 2000
-    cost_limit_per_assembly: float = 0.30  # USD
 
 class ClaudeConfig(BaseModel):
     """Claude API configuration."""
@@ -580,6 +611,7 @@ class PRReviewSettings(BaseSettings):
     )
     
     langgraph: LangGraphConfig = Field(default_factory=LangGraphConfig)
+    context_assembly_config: ContextAssemblyConfig = Field(default_factory=ContextAssemblyConfig)
     context_assembly_limits: ContextAssemblyLimits = Field(default_factory=ContextAssemblyLimits)
     claude_config: ClaudeConfig = Field(default_factory=ClaudeConfig)
     

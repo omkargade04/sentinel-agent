@@ -37,7 +37,7 @@ class Finding(BaseModel):
     finding_id: str = Field(
         ...,
         description="Unique finding identifier within the review",
-        regex=r'^finding_\d+$'
+        pattern=r'^finding_\d+$'
     )
     severity: FindingSeverity = Field(..., description="Severity level of this finding")
     category: FindingCategory = Field(..., description="Category/type of finding")
