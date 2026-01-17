@@ -5,8 +5,9 @@ Centralized configuration management for the PR review pipeline with hard limits
 environment-based settings, and validation rules.
 """
 
+from dataclasses import dataclass
 import os
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from pydantic import Field, validator, BaseModel
 from pydantic_settings import BaseSettings
 from enum import Enum
@@ -436,6 +437,28 @@ class LLMConfig(BaseModel):
         }
 
 
+class LangGraphConfig(BaseModel):
+    """LangGraph workflow configuration."""
+    max_iterations: int = 10
+    timeout_seconds: int = 300
+    enable_checkpointing: bool = True
+    recursion_limit: int = 25
+
+class ContextAssemblyLimits(BaseModel):
+    """Hard limits for context assembly."""
+    max_context_items: int = 35
+    max_total_characters: int = 120_000
+    max_lines_per_snippet: int = 120
+    max_chars_per_item: int = 2000
+    cost_limit_per_assembly: float = 0.30  # USD
+
+class ClaudeConfig(BaseModel):
+    """Claude API configuration."""
+    model: str = "claude-3-5-sonnet-20241022"
+    max_tokens: int = 8000
+    temperature: float = 0.0
+    timeout_seconds: int = 60
+    
 class PRReviewSettings(BaseSettings):
     """Main configuration settings for PR review pipeline."""
 
@@ -555,6 +578,11 @@ class PRReviewSettings(BaseSettings):
         default=None,
         description="Anthropic API key"
     )
+    
+    langgraph: LangGraphConfig = Field(default_factory=LangGraphConfig)
+    context_assembly_limits: ContextAssemblyLimits = Field(default_factory=ContextAssemblyLimits)
+    claude_config: ClaudeConfig = Field(default_factory=ClaudeConfig)
+    
 
     # ============================================================================
     # NEO4J CONFIGURATION
