@@ -19,13 +19,13 @@ from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
-from src.services.pr_review.review_generation.exceptions import (
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.exceptions import (
     WorkflowNodeError,
     WorkflowStateError,
     ReviewGenerationError
 )
-from src.services.pr_review.review_generation.schema import ReviewGenerationState
+from src.langgraph.review_generation.schema import ReviewGenerationState
 
 logger = logging.getLogger(__name__)
 

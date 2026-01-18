@@ -12,29 +12,29 @@ from typing import Dict, List, Any, Optional, TypedDict
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-from src.services.pr_review.review_generation import DiffProcessorNode, FindingAnchorerNode, PromptBuilderNode, QualityValidatorNode
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
-from src.services.pr_review.review_generation.base_node import (
+from src.langgraph.review_generation import DiffProcessorNode, FindingAnchorerNode, PromptBuilderNode, QualityValidatorNode
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.base_node import (
     BaseReviewGenerationNode,
     NodeExecutionResult,
     NodeExecutionMetrics
 )
-from src.services.pr_review.review_generation.exceptions import (
+from src.langgraph.review_generation.exceptions import (
     WorkflowExecutionError,
     WorkflowNodeError,
     WorkflowStateError
 )
-from src.services.pr_review.review_generation.schema import (
+from src.langgraph.review_generation.schema import (
     ReviewGenerationState,
     RawLLMReviewOutput,
     AnalyzedContext,
     DiffMappings,
     RawLLMFinding
 )
-from src.services.pr_review.review_generation.context_analyzer import (
+from src.langgraph.review_generation.context_analyzer import (
     ContextAnalyzerNode
 )
-from src.services.pr_review.review_generation.llm_generator import (
+from src.langgraph.review_generation.llm_generator import (
     LLMGeneratorNode
 )
 

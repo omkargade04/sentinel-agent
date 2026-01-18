@@ -10,8 +10,8 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Set
 from collections import defaultdict
 
-from src.services.pr_review.review_generation.base_node import BaseReviewGenerationNode
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.base_node import BaseReviewGenerationNode
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +58,6 @@ class QualityValidatorNode(BaseReviewGenerationNode):
         )
         self.min_confidence = min_confidence
         self.max_findings = max_findings
-
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the quality validator node."""
-        return await self._execute_node_logic(state)
 
     async def _execute_node_logic(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """

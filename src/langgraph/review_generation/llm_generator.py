@@ -13,14 +13,14 @@ from typing import Dict, List, Any, Optional
 
 from pydantic import ValidationError
 
-from src.services.pr_review.review_generation.base_node import BaseReviewGenerationNode
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
-from src.services.pr_review.review_generation.schema import (
+from src.langgraph.review_generation.base_node import BaseReviewGenerationNode
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.schema import (
     RawLLMReviewOutput,
     RawLLMFinding,
     StructuredPrompt,
 )
-from src.services.pr_review.review_generation.exceptions import (
+from src.langgraph.review_generation.exceptions import (
     LLMGenerationError,
     LLMResponseParseError,
     LLMTimeoutError,
@@ -89,10 +89,6 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
             )
         return self._llm_client
 
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the LLM generator node."""
-        return await self._execute_node_logic(state)
-    
     async def _execute_node_logic(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate review using LLM.

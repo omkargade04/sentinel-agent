@@ -217,7 +217,7 @@ class ContextAssemblyGraph:
 
         return {
             "seed_analysis_quality": len(node_results.get('seed_analyzer', {}).get('analyzed_seeds', [])),
-            "kg_expansion_success": node_results.get('kg_querier', {}).get('expansion_stats', {}).get('candidates_expanded', 0),
+            "kg_expansion_success": node_results.get('candidate_enricher', {}).get('expansion_stats', {}).get('candidates_expanded', 0),
             "extraction_success_rate": node_results.get('snippet_extractor', {}).get('quality_metrics', {}).get('extraction_success_rate', 0.0),
             "deduplication_rate": node_results.get('context_ranker', {}).get('quality_metrics', {}).get('deduplication_rate', 0.0),
             "context_coverage": node_results.get('pack_assembler', {}).get('quality_metrics', {}).get('context_coverage', 0.0),

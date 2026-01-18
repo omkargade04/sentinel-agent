@@ -11,9 +11,9 @@ from typing import Dict, List, Any, Optional, Set, Tuple
 from collections import defaultdict
 from dataclasses import dataclass
 
-from src.services.pr_review.review_generation.base_node import BaseReviewGenerationNode
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
-from src.services.pr_review.review_generation.schema import (
+from src.langgraph.review_generation.base_node import BaseReviewGenerationNode
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.schema import (
     AnalyzedContext,
     TechnicalInsight,
     ReviewFocusArea,
@@ -239,18 +239,6 @@ class ContextAnalyzerNode(BaseReviewGenerationNode):
         self._framework_signatures = FRAMEWORK_SIGNATURES
         self._pattern_signatures = CODE_PATTERN_SIGNATURES
         
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute the context analyzer node.
-        
-        Args:
-            state: Workflow state containing context_pack
-            
-        Returns:
-            Dict with analyzed_context key containing AnalyzedContext
-        """
-        return await self._execute_node_logic(state)
-
     async def _execute_node_logic(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze context pack for technical insights.

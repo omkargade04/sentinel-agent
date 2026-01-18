@@ -9,9 +9,9 @@ import logging
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
-from src.services.pr_review.review_generation.base_node import BaseReviewGenerationNode
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
-from src.services.pr_review.review_generation.schema import (
+from src.langgraph.review_generation.base_node import BaseReviewGenerationNode
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.schema import (
     DiffMappings,
     FileDiffMapping,
     HunkMapping,
@@ -42,10 +42,6 @@ class DiffProcessorNode(BaseReviewGenerationNode):
             max_retries=2
         )
         
-    async def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute the diff processor node."""
-        return await self._execute_node_logic(state)
-    
     async def _execute_node_logic(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process patches and build diff mapping structures.

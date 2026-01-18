@@ -14,7 +14,7 @@ from datetime import datetime
 
 from .langgraph_workflow import ReviewGenerationWorkflow
 from .exceptions import ReviewGenerationError, LLMGenerationError
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 

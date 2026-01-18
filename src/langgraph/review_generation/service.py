@@ -23,7 +23,7 @@ from src.models.schemas.pr_review.review_output import LLMReviewOutput, Finding
 
 from .review_graph import ReviewGenerationGraph
 from .exceptions import ReviewGenerationError, QualityValidationError
-from src.services.pr_review.review_generation.circuit_breaker import CircuitBreaker
+from src.langgraph.review_generation.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
