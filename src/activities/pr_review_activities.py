@@ -814,52 +814,157 @@ async def generate_review_activity(input_data: Dict[str, Any]) -> Dict[str, Any]
 @activity.defn
 async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Deterministic review publishing with diff anchoring and GitHub API integration.
+    Publish GitHub PR review with inline comments anchored to diff positions.
 
-    Phase 7 Implementation:
-    - Diff position calculation for inline comments
-    - GitHub API review creation with rate limiting
-    - Fallback strategies for unanchorable findings
-    - Audit trail persistence
+    This activity:
+    - Calculates GitHub diff positions for each finding
+    - Publishes inline comments for anchorable findings
+    - Falls back to summary-only review if inline comments fail (422 error)
+    - Collects publishing statistics
 
     Args:
-        input_data: Contains review_output, patches, and GitHub details
+        input_data: Contains:
+            - review_output: LLM review output dict with findings and summary
+            - patches: List of PRFilePatch dicts
+            - github_repo_name: Repository name (owner/repo)
+            - pr_number: Pull request number
+            - head_sha: Commit SHA to attach review to
+            - installation_id: GitHub App installation ID
 
     Returns:
-        PublishReviewOutput with publishing results
+        Dict with:
+            - published: bool
+            - github_review_id: Optional[int]
+            - review_run_id: str
+            - anchored_comments: int
+            - unanchored_findings: int
+            - fallback_used: bool
+            - publish_stats: dict with timing and call counts
     """
+    from src.services.github.pr_api_client import PRApiClient
+    from src.services.github.diff_position import DiffPositionCalculator
+    from src.services.github.review_publisher import ReviewPublisher
+    from src.models.schemas.pr_review.pr_patch import PRFilePatch
+
+    # Extract required inputs
     review_output = input_data["review_output"]
+    patches_data = input_data["patches"]
     github_repo_name = input_data["github_repo_name"]
     pr_number = input_data["pr_number"]
+    head_sha = input_data["head_sha"]
+    installation_id = input_data.get("installation_id")
 
-    logger.info(
-        f"[STUB] Publishing review for {github_repo_name}#{pr_number} "
-        f"with {review_output.get('total_findings', 0)} findings"
-    )
-
-    # TODO Phase 7: Implement review publishing
-    # - diff_calculator = DiffPositionCalculator()
-    # - github_client = GitHubRetryClient(installation_id)
-    # - anchored, unanchored = calculate_diff_positions(findings, patches)
-    # - review_id = await github_client.create_review(repo, pr_number, comments, summary)
-
-    # Stub implementation - create review run record in database
+    # Generate review run ID for tracking
     review_run_id = str(uuid.uuid4())
 
-    return {
-        "published": False,  # Will be True when actually implemented
-        "github_review_id": None,
-        "review_run_id": review_run_id,
-        "anchored_comments": 0,
-        "unanchored_findings": review_output.get("total_findings", 0),
-        "fallback_used": False,
-        "publish_stats": {
-            "github_api_calls": 0,
-            "rate_limit_delays": 0,
-            "retry_attempts": 0,
-            "publish_duration_ms": 0
+    logger.info(
+        f"Publishing review for {github_repo_name}#{pr_number} "
+        f"(run_id={review_run_id[:8]}) with "
+        f"{review_output.get('total_findings', 0)} findings"
+    )
+
+    # Validate installation_id
+    if not installation_id:
+        logger.error(
+            f"Missing installation_id for {github_repo_name}#{pr_number}, "
+            "cannot publish review"
+        )
+        return {
+            "published": False,
+            "github_review_id": None,
+            "review_run_id": review_run_id,
+            "anchored_comments": 0,
+            "unanchored_findings": review_output.get("total_findings", 0),
+            "fallback_used": False,
+            "error": "Missing installation_id",
+            "publish_stats": {
+                "github_api_calls": 0,
+                "rate_limit_delays": 0,
+                "retry_attempts": 0,
+                "publish_duration_ms": 0,
+                "position_calculations": 0,
+                "position_failures": 0,
+                "position_adjustments": 0
+            }
         }
-    }
+
+    try:
+        # Convert patches from dicts to PRFilePatch objects
+        patches = [
+            PRFilePatch(**p) if isinstance(p, dict) else p
+            for p in patches_data
+        ]
+
+        # Initialize services
+        pr_api_client = PRApiClient()
+        diff_calculator = DiffPositionCalculator()
+        publisher = ReviewPublisher(
+            pr_api_client=pr_api_client,
+            diff_calculator=diff_calculator
+        )
+
+        # Publish the review
+        result = await publisher.publish_review(
+            repo_name=github_repo_name,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            review_output=review_output,
+            patches=patches,
+            installation_id=installation_id,
+            review_run_id=review_run_id
+        )
+
+        logger.info(
+            f"Review publishing completed for {github_repo_name}#{pr_number}: "
+            f"published={result.published}, "
+            f"github_review_id={result.github_review_id}, "
+            f"anchored={result.anchored_comments}, "
+            f"unanchored={result.unanchored_findings}, "
+            f"fallback={result.fallback_used}"
+        )
+
+        return {
+            "published": result.published,
+            "github_review_id": result.github_review_id,
+            "review_run_id": review_run_id,
+            "anchored_comments": result.anchored_comments,
+            "unanchored_findings": result.unanchored_findings,
+            "fallback_used": result.fallback_used,
+            "publish_stats": {
+                "github_api_calls": result.publish_stats.github_api_calls,
+                "rate_limit_delays": result.publish_stats.rate_limit_delays,
+                "retry_attempts": result.publish_stats.retry_attempts,
+                "publish_duration_ms": result.publish_stats.publish_duration_ms,
+                "position_calculations": result.publish_stats.position_calculations,
+                "position_failures": result.publish_stats.position_failures,
+                "position_adjustments": result.publish_stats.position_adjustments
+            }
+        }
+
+    except Exception as e:
+        logger.error(
+            f"Failed to publish review for {github_repo_name}#{pr_number}: {e}",
+            exc_info=True
+        )
+
+        return {
+            "published": False,
+            "github_review_id": None,
+            "review_run_id": review_run_id,
+            "anchored_comments": 0,
+            "unanchored_findings": review_output.get("total_findings", 0),
+            "fallback_used": False,
+            "error": str(e),
+            "publish_stats": {
+                "github_api_calls": 0,
+                "rate_limit_delays": 0,
+                "retry_attempts": 0,
+                "publish_duration_ms": 0,
+                "position_calculations": 0,
+                "position_failures": 0,
+                "position_adjustments": 0
+            }
+        }
 
 
 # ============================================================================

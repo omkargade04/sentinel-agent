@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from fastapi import Depends
 from fastapi.responses import RedirectResponse
 from pydantic import ValidationError
@@ -7,6 +7,7 @@ from src.services.github.installation_service import InstallationService
 from src.utils.logging.otel_logger import logger
 from src.core.database import get_db
 from src.models.db.users import User
+from src.models.db.repositories import Repository
 from sqlalchemy.orm import Session
 import secrets
 import httpx
@@ -117,7 +118,7 @@ class GithubService:
         db.refresh(user)
         
         return user
-        
+
     async def process_webhook(self, body: Dict[str, Any], event_type: str) -> Dict[str, Any]:
         """Process GitHub webhook events"""
         logger.info(f"Processing GitHub webhook event: {event_type}")
@@ -142,8 +143,9 @@ class GithubService:
                         logger.warning(f"Unhandled installation_repositories action: {action}")
 
             elif event_type == "pull_request":
-                # TODO: Implement PR webhook handling for code reviews
-                logger.info("PR webhook received - not implemented yet")
+                result = await self._handle_pull_request_webhook(body)
+                if result:
+                    return result
                 
             else:
                 logger.info(f"Unhandled webhook event type: {event_type}")
@@ -163,3 +165,149 @@ class GithubService:
             if not isinstance(e, AppException):
                 raise AppException(status_code=500, message=f"Failed to process webhook '{event_type}'")
             raise e
+            
+    async def _handle_pull_request_webhook(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Handle pull_request webhook events to trigger automated code reviews.
+        
+        Triggers PRReviewWorkflow for:
+        - opened: New PR created
+        - reopened: Previously closed PR reopened
+        - synchronize: New commits pushed to PR
+        
+        Args:
+            payload: GitHub webhook payload
+            
+        Returns:
+            Response dict if handled, None if ignored
+        """
+        from src.core.temporal_client import temporal_client
+        from src.models.schemas.pr_review import PRReviewRequest
+        from src.workflows.pr_review_workflow import (
+            PRReviewWorkflow,
+            create_pr_review_workflow_id,
+            create_pr_review_task_queue
+        )
+        
+        action = payload.get("action")
+        pr_data = payload.get("pull_request", {})
+        repo_data = payload.get("repository", {})
+        installation_data = payload.get("installation", {})
+        
+        # Only handle specific actions
+        supported_actions = {"opened", "reopened", "synchronize"}
+        if action not in supported_actions:
+            logger.info(f"Ignoring pull_request action: {action}")
+            return None
+        
+        # Extract PR details
+        pr_number = pr_data.get("number")
+        head_sha = pr_data.get("head", {}).get("sha")
+        base_sha = pr_data.get("base", {}).get("sha")
+        head_repo_full_name = pr_data.get("head", {}).get("repo", {}).get("full_name")
+        base_repo_full_name = pr_data.get("base", {}).get("repo", {}).get("full_name")
+        
+        # Extract repository details
+        github_repo_id = repo_data.get("id")
+        github_repo_name = repo_data.get("full_name")
+        
+        # Extract installation ID
+        installation_id = installation_data.get("id")
+        
+        logger.info(
+            f"Processing pull_request:{action} for {github_repo_name}#{pr_number} "
+            f"(head: {head_sha[:8] if head_sha else 'unknown'})"
+        )
+        
+        # Validate required fields
+        if not all([pr_number, head_sha, base_sha, github_repo_id, github_repo_name, installation_id]):
+            logger.warning(
+                f"Missing required fields in pull_request webhook: "
+                f"pr_number={pr_number}, head_sha={head_sha}, base_sha={base_sha}, "
+                f"github_repo_id={github_repo_id}, installation_id={installation_id}"
+            )
+            return {
+                "status": "ignored",
+                "reason": "Missing required fields in webhook payload"
+            }
+        
+        # v0 limitation: Reject fork PRs
+        if head_repo_full_name != base_repo_full_name:
+            logger.info(
+                f"Ignoring fork PR: head={head_repo_full_name}, base={base_repo_full_name}"
+            )
+            return {
+                "status": "ignored",
+                "reason": "Fork PRs not supported in v0"
+            }
+        
+        # Look up internal repository ID
+        repository = self.db.query(Repository).filter(
+            Repository.github_repo_id == github_repo_id
+        ).first()
+        
+        if not repository:
+            logger.warning(
+                f"Repository not found in database: github_repo_id={github_repo_id}, "
+                f"name={github_repo_name}. Repository may not be indexed yet."
+            )
+            return {
+                "status": "ignored",
+                "reason": f"Repository {github_repo_name} not indexed yet"
+            }
+        
+        # Build PR review request
+        try:
+            review_request = PRReviewRequest(
+                installation_id=installation_id,
+                repo_id=repository.id,
+                github_repo_id=github_repo_id,
+                github_repo_name=github_repo_name,
+                pr_number=pr_number,
+                head_sha=head_sha,
+                base_sha=base_sha
+            )
+        except ValidationError as e:
+            logger.error(f"Failed to build PRReviewRequest: {e}")
+            return {
+                "status": "error",
+                "reason": f"Invalid PR data: {e}"
+            }
+        
+        # Start Temporal workflow
+        try:
+            client = await temporal_client.get_client()
+            workflow_id = create_pr_review_workflow_id(
+                str(repository.id),
+                pr_number
+            )
+            
+            handle = await client.start_workflow(
+                PRReviewWorkflow.run,
+                review_request,
+                id=workflow_id,
+                task_queue=create_pr_review_task_queue()
+            )
+            
+            logger.info(
+                f"Started PR review workflow {workflow_id} for "
+                f"{github_repo_name}#{pr_number}"
+            )
+            
+            return {
+                "status": "success",
+                "message": f"PR review workflow started for {github_repo_name}#{pr_number}",
+                "workflow_id": workflow_id,
+                "run_id": str(handle.first_execution_run_id or "")
+            }
+            
+        except Exception as e:
+            logger.error(
+                f"Failed to start PR review workflow for {github_repo_name}#{pr_number}: {e}",
+                exc_info=True
+            )
+            # Don't raise - webhook should return 200 even if workflow fails to start
+            return {
+                "status": "error",
+                "reason": f"Failed to start workflow: {str(e)}"
+            }
