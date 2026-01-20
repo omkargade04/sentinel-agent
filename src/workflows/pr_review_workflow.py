@@ -9,6 +9,7 @@ from datetime import timedelta
 from temporalio.common import RetryPolicy
 from temporalio import workflow
 from typing import Optional
+import uuid
 
 from src.models.schemas.pr_review import (
     PRReviewRequest,
@@ -17,7 +18,7 @@ from src.models.schemas.pr_review import (
 from src.core.pr_review_config import pr_review_settings
 from src.utils.logging import get_logger
 
-# Activity imports (stubs for now - will be implemented in Phase 2-7)
+# Activity imports
 from src.activities.pr_review_activities import (
     fetch_pr_context_activity,
     clone_pr_head_activity,
@@ -25,6 +26,7 @@ from src.activities.pr_review_activities import (
     retrieve_kg_candidates_activity,
     retrieve_and_assemble_context_activity,
     generate_review_activity,
+    persist_pr_review_metadata_activity,
     anchor_and_publish_activity,
     cleanup_pr_clone_activity,
 )
@@ -256,18 +258,52 @@ class PRReviewWorkflow:
             )
 
             # ====================================================================
-            # PHASE 4: PUBLISHING (Deterministic with Retry)
+            # PHASE 4: PERSISTENCE & PUBLISHING
             # ====================================================================
 
-            logger.info("Phase 4: Starting review publishing")
+            logger.info("Phase 4: Starting metadata persistence and review publishing")
 
+            # Step 4.1: PERSIST FIRST - Create review_run + findings (published=false)
+            # This ensures full audit trail regardless of GitHub publish success
+            review_run_id = str(uuid.uuid4())
+            persist_input = {
+                "repo_id": str(request.repo_id),
+                "github_repo_id": request.github_repo_id,
+                "github_repo_name": request.github_repo_name,
+                "pr_number": request.pr_number,
+                "head_sha": request.head_sha,
+                "base_sha": request.base_sha,
+                "workflow_id": workflow.info().workflow_id,
+                "review_run_id": review_run_id,
+                "review_output": review_output,
+                "patches": pr_context["patches"],
+                "llm_model": generation_stats.get("model_used", "unknown"),
+            }
+            persist_result = await workflow.execute_activity(
+                persist_pr_review_metadata_activity,
+                persist_input,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=standard_retry
+            )
+            rows_written = persist_result.get("rows_written", {})
+            logger.info(
+                f"Persisted review metadata: review_runs={rows_written.get('review_runs', 0)}, "
+                f"review_findings={rows_written.get('review_findings', 0)}, "
+                f"review_run_id={review_run_id[:8]}"
+            )
+
+            # Step 4.2: PUBLISH TO GITHUB & UPDATE STATUS
+            # anchor_and_publish_activity will:
+            #   a) Publish review to GitHub
+            #   b) Update review_run with published=true, github_review_id
             publish_input = {
                 "review_output": review_output,
                 "patches": pr_context["patches"],
                 "github_repo_name": request.github_repo_name,
                 "pr_number": request.pr_number,
                 "head_sha": request.head_sha,
-                "installation_id": request.installation_id
+                "installation_id": request.installation_id,
+                "review_run_id": review_run_id,  # Pass through for DB update
             }
             publish_result = await workflow.execute_activity(
                 anchor_and_publish_activity,
@@ -277,7 +313,6 @@ class PRReviewWorkflow:
                 ),
                 retry_policy=standard_retry  # GitHub API retry with rate limiting
             )
-            review_run_id = publish_result["review_run_id"]
             logger.info(
                 f"Published review: github_review_id={publish_result.get('github_review_id')}, "
                 f"anchored={publish_result.get('anchored_comments', 0)}, "

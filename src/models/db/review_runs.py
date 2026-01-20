@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey
+from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, BigInteger, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from src.core.database import Base
@@ -15,6 +15,11 @@ class ReviewRun(Base):
     completed_at = Column(TIMESTAMP)
     status = Column(String, default='pending')
     error_message = Column(String)
+
+    # PR review metadata persistence columns
+    temporal_workflow_id = Column(String(255), nullable=True)
+    github_review_id = Column(BigInteger, nullable=True)
+    published = Column(Boolean, nullable=False, server_default=text('false'))
 
     pull_request = relationship("PullRequest", back_populates="review_runs")
     snapshot = relationship("RepoSnapshot", back_populates="review_runs")

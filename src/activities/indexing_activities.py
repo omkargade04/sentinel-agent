@@ -1,7 +1,7 @@
 from temporalio.exceptions import ApplicationError
 from src.core.config import settings
 from src.core.neo4j import Neo4jConnection
-from src.services.indexing.metadata_service import MetadataService
+from src.services.persist_metadata.persist_metadata_service import MetadataService
 from src.services.indexing.repo_clone_service import RepoCloneService
 from temporalio import activity
 from src.activities.helpers import _deserialize_node, _deserialize_edge

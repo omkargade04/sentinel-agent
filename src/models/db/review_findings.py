@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, Integer
+from sqlalchemy import Column, String, TIMESTAMP, text, ForeignKey, Integer, BigInteger
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from src.core.database import Base
@@ -15,5 +15,9 @@ class ReviewFinding(Base):
     message = Column(String, nullable=False)
     suggestion = Column(String)
     created_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    # PR review metadata persistence columns
+    hunk_id = Column(String(100), nullable=True)
+    github_comment_id = Column(BigInteger, nullable=True)
 
     review_run = relationship("ReviewRun", back_populates="findings")

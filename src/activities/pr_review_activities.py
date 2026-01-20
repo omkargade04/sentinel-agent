@@ -808,8 +808,96 @@ async def generate_review_activity(input_data: Dict[str, Any]) -> Dict[str, Any]
 
 
 # ============================================================================
-# PHASE 4: PUBLISHING ACTIVITIES
+# PHASE 4: PERSISTENCE & PUBLISHING ACTIVITIES
 # ============================================================================
+
+@activity.defn
+async def persist_pr_review_metadata_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Persist PR review run and findings metadata to Postgres BEFORE GitHub publish.
+
+    This activity creates the review_run record (with published=false) and all
+    review_findings records to ensure full audit trail regardless of whether
+    the subsequent GitHub publish succeeds.
+
+    Args:
+        input_data: Contains:
+            - repo_id: Internal repository UUID string
+            - github_repo_id: GitHub repository ID
+            - github_repo_name: Repository name (owner/repo)
+            - pr_number: Pull request number
+            - head_sha: PR head commit SHA
+            - base_sha: PR base commit SHA
+            - workflow_id: Temporal workflow ID
+            - review_run_id: Generated review run UUID string
+            - review_output: Dict with 'findings' list from generate_review_activity
+            - patches: List of PRFilePatch dicts for line number computation
+            - llm_model: LLM model used for review generation
+
+    Returns:
+        Dict with:
+            - persisted: bool
+            - review_run_id: str
+            - rows_written: {"review_runs": 1, "review_findings": N}
+    """
+    from src.services.persist_metadata.persist_metadata_service import MetadataService
+
+    # Extract inputs
+    repo_id = input_data["repo_id"]
+    github_repo_id = input_data["github_repo_id"]
+    github_repo_name = input_data["github_repo_name"]
+    pr_number = input_data["pr_number"]
+    head_sha = input_data["head_sha"]
+    base_sha = input_data["base_sha"]
+    workflow_id = input_data["workflow_id"]
+    review_run_id = input_data["review_run_id"]
+    review_output = input_data["review_output"]
+    patches = input_data["patches"]
+    llm_model = input_data.get("llm_model", "unknown")
+
+    logger.info(
+        f"Persisting review metadata for {github_repo_name}#{pr_number} "
+        f"(review_run_id={review_run_id[:8]}, workflow_id={workflow_id[:20]}...)"
+    )
+
+    try:
+        metadata_service = MetadataService()
+
+        result = await metadata_service.persist_review_metadata(
+            repo_id=repo_id,
+            github_repo_id=github_repo_id,
+            github_repo_name=github_repo_name,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            base_sha=base_sha,
+            workflow_id=workflow_id,
+            review_run_id=review_run_id,
+            review_output=review_output,
+            patches=patches,
+            llm_model=llm_model,
+        )
+
+        rows = result.get("rows_written", {})
+        logger.info(
+            f"Persisted review metadata: review_runs={rows.get('review_runs', 0)}, "
+            f"review_findings={rows.get('review_findings', 0)}"
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(
+            f"Failed to persist review metadata for {github_repo_name}#{pr_number}: {e}",
+            exc_info=True
+        )
+        # Return failure state - don't raise to allow workflow to decide on retry
+        return {
+            "persisted": False,
+            "review_run_id": review_run_id,
+            "rows_written": {"review_runs": 0, "review_findings": 0},
+            "error": str(e)
+        }
+
 
 @activity.defn
 async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -821,6 +909,7 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
     - Publishes inline comments for anchorable findings
     - Falls back to summary-only review if inline comments fail (422 error)
     - Collects publishing statistics
+    - Updates review_run record with published status and github_review_id
 
     Args:
         input_data: Contains:
@@ -830,6 +919,7 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
             - pr_number: Pull request number
             - head_sha: Commit SHA to attach review to
             - installation_id: GitHub App installation ID
+            - review_run_id: Optional[str] - Review run ID from persist_pr_review_metadata_activity
 
     Returns:
         Dict with:
@@ -845,6 +935,7 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
     from src.services.github.diff_position import DiffPositionCalculator
     from src.services.github.review_publisher import ReviewPublisher
     from src.models.schemas.pr_review.pr_patch import PRFilePatch
+    from src.services.persist_metadata.persist_metadata_service import MetadataService
 
     # Extract required inputs
     review_output = input_data["review_output"]
@@ -854,8 +945,8 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
     head_sha = input_data["head_sha"]
     installation_id = input_data.get("installation_id")
 
-    # Generate review run ID for tracking
-    review_run_id = str(uuid.uuid4())
+    # Use review_run_id from persist activity if provided, otherwise generate one
+    review_run_id = input_data.get("review_run_id") or str(uuid.uuid4())
 
     logger.info(
         f"Publishing review for {github_repo_name}#{pr_number} "
@@ -923,6 +1014,25 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
             f"fallback={result.fallback_used}"
         )
 
+        # Update review_run record with published status and github_review_id
+        if result.published and input_data.get("review_run_id"):
+            try:
+                metadata_service = MetadataService()
+                await metadata_service.update_review_run_status(
+                    review_run_id=review_run_id,
+                    published=True,
+                    github_review_id=result.github_review_id,
+                )
+                logger.info(
+                    f"Updated review_run {review_run_id[:8]} with published=True, "
+                    f"github_review_id={result.github_review_id}"
+                )
+            except Exception as update_error:
+                logger.warning(
+                    f"Failed to update review_run status for {review_run_id[:8]}: {update_error}"
+                )
+                # Don't fail the activity - GitHub publish succeeded
+
         return {
             "published": result.published,
             "github_review_id": result.github_review_id,
@@ -946,6 +1056,20 @@ async def anchor_and_publish_activity(input_data: Dict[str, Any]) -> Dict[str, A
             f"Failed to publish review for {github_repo_name}#{pr_number}: {e}",
             exc_info=True
         )
+
+        # Update review_run record with failed status
+        if input_data.get("review_run_id"):
+            try:
+                metadata_service = MetadataService()
+                await metadata_service.update_review_run_status(
+                    review_run_id=review_run_id,
+                    published=False,
+                )
+                logger.info(f"Updated review_run {review_run_id[:8]} with published=False")
+            except Exception as update_error:
+                logger.warning(
+                    f"Failed to update review_run status for {review_run_id[:8]}: {update_error}"
+                )
 
         return {
             "published": False,
@@ -1056,7 +1180,7 @@ PR_REVIEW_ACTIVITIES = [
     fetch_pr_context_activity,
     clone_pr_head_activity,
     build_seed_set_activity,
-    
+
     # Phase 2: KG retrieval
     retrieve_kg_candidates_activity,
 
@@ -1066,7 +1190,8 @@ PR_REVIEW_ACTIVITIES = [
     # Phase 4: Review generation (LangGraph)
     generate_review_activity,
 
-    # Phase 5: Publishing
+    # Phase 5: Persistence & Publishing
+    persist_pr_review_metadata_activity,
     anchor_and_publish_activity,
 
     # Cleanup
