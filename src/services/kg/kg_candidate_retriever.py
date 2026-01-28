@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, date, time as time_type
 from typing import Any, Dict, List, Optional, Set
 
 from src.models.schemas.pr_review.seed_set import SeedSetS0, SeedSymbol
@@ -17,6 +18,74 @@ from src.core.pr_review_config import pr_review_settings
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _convert_neo4j_types(obj: Any) -> Any:
+    """
+    Recursively convert Neo4j types to JSON-serializable Python types.
+
+    Neo4j returns special types like neo4j.time.DateTime, neo4j.time.Date,
+    neo4j.graph.Node, etc. that are not JSON serializable.
+
+    Args:
+        obj: Any object that might contain Neo4j types
+
+    Returns:
+        JSON-serializable version of the object
+    """
+    # Handle None
+    if obj is None:
+        return None
+
+    # Handle Neo4j DateTime types
+    try:
+        # Neo4j DateTime/Date/Time types have to_native() method
+        if hasattr(obj, 'to_native'):
+            native = obj.to_native()
+            # Convert datetime to ISO string
+            if isinstance(native, datetime):
+                return native.isoformat()
+            elif isinstance(native, date):
+                return native.isoformat()
+            elif isinstance(native, time_type):
+                return native.isoformat()
+            return native
+
+        # Neo4j Node/Relationship types
+        if hasattr(obj, '_properties'):
+            return _convert_neo4j_types(dict(obj._properties))
+    except Exception:
+        pass
+
+    # Handle standard Python types
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, date):
+        return obj.isoformat()
+    elif isinstance(obj, time_type):
+        return obj.isoformat()
+
+    # Handle dict recursively
+    if isinstance(obj, dict):
+        return {k: _convert_neo4j_types(v) for k, v in obj.items()}
+
+    # Handle list/tuple recursively
+    if isinstance(obj, (list, tuple)):
+        return [_convert_neo4j_types(item) for item in obj]
+
+    # Handle set
+    if isinstance(obj, set):
+        return [_convert_neo4j_types(item) for item in obj]
+
+    # Primitives and other JSON-serializable types pass through
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+
+    # Fallback: convert to string
+    try:
+        return str(obj)
+    except Exception:
+        return None
 
 
 @dataclass
@@ -47,13 +116,48 @@ class KGCandidateResult:
     warnings: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to dictionary for serialization.
+
+        Ensures all Neo4j types (DateTime, Node, etc.) are converted to
+        JSON-serializable Python types.
+
+        Returns a dict with:
+        - candidates: Flat list of ALL candidates for downstream consumers
+        - symbol_matches, neighbors, import_neighbors, docs: Structured data for debugging
+        - stats: Retrieval statistics
+        - warnings: Any warnings encountered
+        """
+        # Convert Neo4j types in query results to JSON-serializable types
+        symbol_matches_converted = _convert_neo4j_types(self.symbol_matches)
+        neighbors_converted = _convert_neo4j_types(self.neighbors)
+        import_neighbors_converted = _convert_neo4j_types(self.import_neighbors)
+        docs_converted = _convert_neo4j_types(self.docs)
+
+        # Build flat candidates list for downstream consumers
+        # Each item gets a 'candidate_type' field to identify its source
+        candidates = []
+
+        for item in symbol_matches_converted:
+            candidates.append({**item, "candidate_type": "symbol_match"})
+
+        for item in neighbors_converted:
+            candidates.append({**item, "candidate_type": "neighbor"})
+
+        for item in import_neighbors_converted:
+            candidates.append({**item, "candidate_type": "import_neighbor"})
+
+        for item in docs_converted:
+            candidates.append({**item, "candidate_type": "doc"})
+
         return {
             "kg_commit_sha": self.kg_commit_sha,
-            "symbol_matches": self.symbol_matches,
-            "neighbors": self.neighbors,
-            "import_neighbors": self.import_neighbors,
-            "docs": self.docs,
+            # Flat list for downstream consumers (context assembly service)
+            "candidates": candidates,
+            # Structured data preserved for debugging and logging
+            "symbol_matches": symbol_matches_converted,
+            "neighbors": neighbors_converted,
+            "import_neighbors": import_neighbors_converted,
+            "docs": docs_converted,
             "stats": {
                 "seed_symbols_processed": self.stats.seed_symbols_processed,
                 "seed_files_processed": self.stats.seed_files_processed,

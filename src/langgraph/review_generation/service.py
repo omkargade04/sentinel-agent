@@ -399,9 +399,9 @@ class ReviewGenerationService:
                 "seed_symbols": [
                     {
                         "name": s.name,
-                        "type": s.type,
+                        "type": s.kind,
                         "file_path": s.file_path,
-                        "line_number": s.line_number,
+                        "line_number": getattr(s, 'start_line', None),
                     }
                     for s in context_pack.seed_set.seed_symbols
                 ] if context_pack.seed_set else []
@@ -421,8 +421,7 @@ class ReviewGenerationService:
                 "file_path": patch.file_path,
                 "additions": patch.additions,
                 "deletions": patch.deletions,
-                "changes": patch.changes,
-                "status": patch.status,
+                "change_type": patch.change_type_str,
                 "hunks": []
             }
 

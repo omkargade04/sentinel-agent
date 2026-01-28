@@ -1,7 +1,7 @@
 import logging
-
-from src.langgraph.context_assembly.langgraph_workflow import NodeMetrics, NodeResult, WorkflowState
 from typing import Dict, Any
+
+from src.langgraph.context_assembly.types import NodeMetrics, NodeResult, WorkflowState
 
 class BaseContextAssemblyNode:
     """Base class for workflow nodes."""

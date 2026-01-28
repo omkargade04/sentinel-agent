@@ -134,14 +134,11 @@ class UnifiedDiffParser:
         return PRFilePatch(
             file_path=filename,
             change_type=change_type,
-            status=status,
             additions=file_data.get('additions', 0),
             deletions=file_data.get('deletions', 0),
-            changes=file_data.get('changes', 0),
             hunks=hunks,
             previous_filename=file_data.get('previous_filename'),
-            blob_url=file_data.get('blob_url'),
-            raw_url=file_data.get('raw_url')
+            patch=patch_content,
         )
 
     def parse_patch_to_hunks(self, patch_text: str, file_path: str) -> List[PRHunk]:

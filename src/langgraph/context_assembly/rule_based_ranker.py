@@ -419,6 +419,45 @@ class RuleBasedContextRanker:
         # This is a simplified implementation - in real usage you'd get this from the candidate
         return '.py'  # Default assumption for now
 
+    def remove_duplicates(
+        self,
+        scored_items: List[Dict],
+        similarity_threshold: float = 0.85
+    ) -> List[Dict]:
+        """
+        Remove duplicate or highly similar context items.
+        
+        Args:
+            scored_items: List of scored context items
+            similarity_threshold: Threshold for considering items duplicates (0.0-1.0)
+            
+        Returns:
+            Deduplicated list of items
+        """
+        if not scored_items:
+            return []
+        
+        # Simple deduplication based on item_id or file_path + symbol_name
+        seen = set()
+        deduplicated = []
+        
+        for item in scored_items:
+            # Create unique key from item_id or file_path + symbol_name
+            item_id = item.get('item_id')
+            if item_id:
+                key = item_id
+            else:
+                file_path = item.get('file_path', '')
+                symbol_name = item.get('symbol_name', item.get('name', ''))
+                key = f"{file_path}:{symbol_name}"
+            
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(item)
+        
+        logger.debug(f"Removed {len(scored_items) - len(deduplicated)} duplicate items")
+        return deduplicated
+
     def get_scoring_stats(self, scored_candidates: List[Dict]) -> Dict:
         """Get statistics about the scoring results."""
         if not scored_candidates:

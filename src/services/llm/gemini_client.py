@@ -15,7 +15,7 @@ class GeminiClient(BaseLLMClient):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-3-flash-preview",  # Use gemini-3-flash-preview for v1beta compatibility
         max_tokens: int = 8000,
         temperature: float = 0.0,
         timeout: int = 60

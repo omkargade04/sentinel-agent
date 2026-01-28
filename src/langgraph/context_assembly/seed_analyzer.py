@@ -1,8 +1,6 @@
 from src.langgraph.context_assembly.base_node import BaseContextAssemblyNode
-from src.langgraph.context_assembly.langgraph_workflow import NodeResult, WorkflowState
-from typing import Dict, Any
-import logging
-from typing import Dict, List, Any
+from src.langgraph.context_assembly.types import WorkflowState
+from typing import Dict, Any, List
 
 from src.models.schemas.pr_review.pr_patch import PRFilePatch
 
@@ -28,13 +26,13 @@ class SeedAnalyzerNode(BaseContextAssemblyNode):
 
             analyzed_seed = {
                 "name": seed.name,
-                "type": seed.type,
+                "type": seed.kind,
                 "file_path": seed.file_path,
                 "priority": priority,
                 "context_requirements": context_requirements,
                 "analysis_metadata": {
-                    "is_function": seed.type == "function",
-                    "is_class": seed.type == "class",
+                    "is_function": seed.kind == "function",
+                    "is_class": seed.kind == "class",
                     "affected_by_patch": any(p.file_path == seed.file_path for p in patches),
                     "complexity_estimate": self._estimate_complexity(seed)
                 }
@@ -67,7 +65,7 @@ class SeedAnalyzerNode(BaseContextAssemblyNode):
             priority = min(priority, 1)
 
         # Higher priority for functions and classes
-        if seed.type in ["function", "method", "class"]:
+        if seed.kind in ["function", "method", "class"]:
             priority = min(priority, 2)
 
         return priority
@@ -75,12 +73,12 @@ class SeedAnalyzerNode(BaseContextAssemblyNode):
     def _determine_context_requirements(self, seed) -> Dict[str, Any]:
         """Determine what kind of context is needed for this seed."""
         requirements = {
-            "needs_callers": seed.type in ["function", "method"],
-            "needs_callees": seed.type in ["function", "method"],
-            "needs_inheritance": seed.type == "class",
+            "needs_callers": seed.kind in ["function", "method"],
+            "needs_callees": seed.kind in ["function", "method"],
+            "needs_inheritance": seed.kind == "class",
             "needs_usage_examples": True,
             "needs_dependencies": True,
-            "max_hops": 2 if seed.type == "class" else 1
+            "max_hops": 2 if seed.kind == "class" else 1
         }
 
         return requirements
@@ -96,7 +94,7 @@ class SeedAnalyzerNode(BaseContextAssemblyNode):
             "constant": "low"
         }
 
-        return complexity_map.get(seed.type, "medium")
+        return complexity_map.get(seed.kind, "medium")
 
     def _generate_search_strategy(self, analyzed_seeds: List[Dict]) -> Dict[str, Any]:
         """Generate search strategy based on seed analysis."""

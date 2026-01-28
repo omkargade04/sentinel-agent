@@ -1,6 +1,5 @@
-
 from src.langgraph.context_assembly.base_node import BaseContextAssemblyNode
-from src.langgraph.context_assembly.langgraph_workflow import WorkflowState
+from src.langgraph.context_assembly.types import WorkflowState
 from typing import Dict, List, Any, Optional
 
 from src.langgraph.context_assembly.rule_based_ranker import RuleBasedContextRanker

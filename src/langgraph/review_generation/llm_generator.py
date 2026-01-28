@@ -28,8 +28,9 @@ from src.langgraph.review_generation.exceptions import (
 )
 from src.services.llm.llm_factory import get_llm_client, LLMFactory
 from src.services.llm.base_client import BaseLLMClient
+from src.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LLMGeneratorNode(BaseReviewGenerationNode):
@@ -76,6 +77,7 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
         self._total_input_tokens = 0
         self._total_output_tokens = 0
         self._total_requests = 0
+        self.logger = logger
 
     @property
     def llm_client(self) -> BaseLLMClient:
@@ -83,9 +85,10 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
         if self._llm_client is None:
             self._llm_client = get_llm_client()
             self._cost_tracker = LLMFactory.create_cost_tracker(self._llm_client)
+            # Log LLM client type
             self.logger.info(
-                f"Initialized LLM client: provider={self._llm_client.provider_name}, "
-                f"model={self._llm_client.model}"
+                f"Initialized LLM client: type={type(self._llm_client).__name__}, "
+                f"provider={self._llm_client.provider_name}, model={self._llm_client.model}"
             )
         return self._llm_client
 
@@ -269,22 +272,49 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
         
         content = content.strip()
         
+        # Handle empty context response format
+        # When context_items is empty, LLM may return explanatory text instead of JSON
+        if "no code changes" in content.lower() or "no context items" in content.lower():
+            self.logger.warning(
+                "[LLM_JSON] LLM returned empty context response. Constructing valid JSON structure."
+            )
+            # Construct valid JSON structure for empty context case
+            return {
+                "findings": [],
+                "summary": content[:500] if len(content) > 500 else content,
+                "patterns": None,
+                "recommendations": None
+            }
+        
         # Strategy 1: Direct JSON parse
         try:
             return json.loads(content)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            self.logger.debug(f"[LLM_JSON] Direct JSON parse failed: {e}")
             pass
         
         # Strategy 2: Extract from ```json ... ``` fenced block
+        # Use greedy match to capture full JSON block, handle multiple ``` blocks
         json_block_match = re.search(
-            r'```(?:json)?\s*\n?(.*?)\n?```',
+            r'```(?:json)?\s*\n(.*?)\n```',
             content,
             re.DOTALL | re.IGNORECASE
         )
         if json_block_match:
             try:
-                return json.loads(json_block_match.group(1).strip())
-            except json.JSONDecodeError:
+                json_content = json_block_match.group(1).strip()
+                self.logger.debug(f"[LLM_JSON] Extracted JSON from code block: {len(json_content)} chars")
+                return json.loads(json_content)
+            except json.JSONDecodeError as e:
+                self.logger.debug(f"[LLM_JSON] Failed to parse extracted JSON block: {e}")
+                # Try to find JSON within the extracted block (in case there's extra text)
+                first_brace = json_content.find('{')
+                last_brace = json_content.rfind('}')
+                if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                    try:
+                        return json.loads(json_content[first_brace:last_brace + 1])
+                    except json.JSONDecodeError:
+                        pass
                 pass
         
         # Strategy 3: Extract from first { to last }
@@ -313,10 +343,16 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
         if repaired is not None:
             return repaired
         
-        # All strategies failed
+        # All strategies failed - log full response for debugging
+        self.logger.error(
+            f"[LLM_JSON] All JSON extraction strategies failed. "
+            f"Response length: {len(content)} chars. "
+            f"First 1000 chars: {content[:1000]}"
+        )
+        
         raise LLMResponseParseError(
             "Failed to extract valid JSON from LLM response",
-            raw_response=content[:500],  # Truncate for logging
+            raw_response=content[:2000] if len(content) > 2000 else content,  # Show more for debugging
             parse_error="No valid JSON found after all extraction strategies"
         )
 
@@ -559,6 +595,30 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
                 parse_error=str(e)
             )
 
+    def _fix_finding_validation_issues(self, finding: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Fix common validation issues in findings before validation.
+        
+        Fixes:
+        - Truncate evidence.quote if > 500 chars
+        - Ensure required fields have defaults
+        """
+        fixed = finding.copy()
+        
+        # Fix evidence quote length
+        if "evidence" in fixed and isinstance(fixed["evidence"], dict):
+            evidence = fixed["evidence"].copy()
+            quote = evidence.get("quote")
+            if quote and len(quote) > 500:
+                self.logger.debug(
+                    f"Truncating evidence quote from {len(quote)} to 500 chars for finding: "
+                    f"{finding.get('title', 'unknown')}"
+                )
+                evidence["quote"] = quote[:497] + "..."
+                fixed["evidence"] = evidence
+        
+        return fixed
+
     def _salvage_partial_output(
         self,
         normalized: Dict[str, Any],
@@ -576,11 +636,16 @@ class LLMGeneratorNode(BaseReviewGenerationNode):
         
         for finding in findings:
             try:
+                # Try to fix common validation issues before dropping
+                fixed_finding = self._fix_finding_validation_issues(finding)
+                
                 # Try to validate each finding individually
-                RawLLMFinding.model_validate(finding)
-                valid_findings.append(finding)
-            except ValidationError:
-                self.logger.warning(f"Dropping invalid finding: {finding.get('title', 'unknown')}")
+                RawLLMFinding.model_validate(fixed_finding)
+                valid_findings.append(fixed_finding)
+            except ValidationError as ve:
+                self.logger.warning(
+                    f"Dropping invalid finding: {finding.get('title', 'unknown')} - {ve}"
+                )
         
         if not valid_findings and not normalized.get("summary"):
             return None

@@ -68,7 +68,7 @@ class DiffProcessorNode(BaseReviewGenerationNode):
         allowed_anchors: List[Tuple[str, str]] = []
         line_to_hunk_lookup: Dict[str, Dict[int, Tuple[str, int]]] = {}
         
-        total_changed_files = 0
+        total_changed_lines = 0
         
         for patch in patches:
             file_path = patch.get("file_path", "")
@@ -80,16 +80,16 @@ class DiffProcessorNode(BaseReviewGenerationNode):
                 # File has no hunks (binary file, deleted file, etc.)
                 continue
             
-            file_mappings, file_line_lookup, file_changed_lines = self._process_file_patch(
+            file_mapping, file_line_lookup, file_changed_lines = self._process_file_patch(
                 file_path, hunks
             )
             
-            if file_mappings:
-                file_mappings[file_path] = file_mappings
+            if file_mapping:
+                file_mappings[file_path] = file_mapping
                 all_file_paths.append(file_path)
                 
                 # Collect hunk IDs and allowed anchors
-                for hunk in file_mappings.hunks:
+                for hunk in file_mapping.hunks:
                     all_hunk_ids.append(hunk.hunk_id)
                     allowed_anchors.append((file_path, hunk.hunk_id))
 
@@ -149,8 +149,7 @@ class DiffProcessorNode(BaseReviewGenerationNode):
         total_changed_lines = 0
         
         for hunk in hunks:
-            hunk_mapping, hunk_line_lookup = self._process_hunk(hunk)
-            
+            hunk_mapping, hunk_line_lookup = self._process_hunk(file_path, hunk)
             if hunk_mapping:
                 hunk_mappings.append(hunk_mapping)
                 hunk_ids.append(hunk_mapping.hunk_id)

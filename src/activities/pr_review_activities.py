@@ -111,7 +111,7 @@ async def fetch_pr_context_activity(request: PRReviewRequest) -> Dict[str, Any]:
         # Determine if this is a large PR
         large_pr = (
             len(patches) > pr_review_settings.limits.max_changed_files // 2 or
-            sum(patch.changes for patch in patches) > 500  # Total line changes
+            sum(patch.total_lines_changed for patch in patches) > 500  # Total line changes
         )
 
         logger.info(
@@ -253,8 +253,9 @@ async def build_seed_set_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
         BuildSeedSetOutput with seed symbols and files
     """
     from src.services.seed_generation import SeedSetBuilder
-    from src.models.schemas.pr_review.pr_patch import PRFilePatch
-    
+    from src.utils.validation import validate_patches
+    from src.exceptions.pr_review_exceptions import PatchReconstructionException
+
     clone_path = input_data["clone_path"]
     patches_data = input_data["patches"]
 
@@ -263,8 +264,14 @@ async def build_seed_set_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     try:
-        # Convert dict patches to PRFilePatch objects
-        patches = [PRFilePatch(**p) if isinstance(p, dict) else p for p in patches_data]
+        # Validate and reconstruct patches with proper error handling
+        # Uses strict=False to be resilient - skips invalid patches rather than failing
+        patches = validate_patches(patches_data, strict=False)
+
+        if not patches and patches_data:
+            logger.warning(
+                f"All {len(patches_data)} patches failed validation at {clone_path}"
+            )
         
         # Build seed set using AST analysis
         builder = SeedSetBuilder(
@@ -294,6 +301,18 @@ async def build_seed_set_activity(input_data: Dict[str, Any]) -> Dict[str, Any]:
             }
         }
         
+    except PatchReconstructionException as e:
+        # Specific handling for patch reconstruction failures
+        logger.error(
+            f"Patch reconstruction failed at {clone_path}: {e}",
+            extra={
+                "patch_index": e.patch_index,
+                "error_detail": e.error_detail,
+            },
+            exc_info=True
+        )
+        raise
+
     except Exception as e:
         logger.error(
             f"Failed to build seed set at {clone_path}: {e}",
@@ -710,13 +729,27 @@ async def generate_review_activity(input_data: Dict[str, Any]) -> Dict[str, Any]
         summary = result.get("summary", "Review generated successfully.")
 
         # Build LLMReviewOutput
+        # Calculate high_confidence_findings from actual findings
+        # Handle both dict and Finding object cases, and ensure confidence is properly extracted
+        def get_confidence(finding):
+            """Extract confidence from finding (dict or Finding object)."""
+            if isinstance(finding, dict):
+                return finding.get("confidence", 0.5)
+            elif hasattr(finding, "confidence"):
+                return finding.confidence
+            return 0.5
+        
+        high_confidence_count = sum(
+            1 for f in findings if get_confidence(f) >= 0.7
+        )
+        
         review_output = LLMReviewOutput(
             findings=findings,
             summary=summary,
             patterns=result.get("patterns"),
             recommendations=result.get("recommendations"),
             total_findings=result.get("total_findings", len(findings)),
-            high_confidence_findings=result.get("stats", {}).get("high_confidence", 0),
+            high_confidence_findings=high_confidence_count,  # Calculate from actual findings
             review_timestamp=datetime.now().isoformat()
         )
 

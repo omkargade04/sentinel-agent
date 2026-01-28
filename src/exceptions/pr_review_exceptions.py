@@ -229,6 +229,49 @@ class ReviewAnchoringException(ReviewPublishingException):
 # UTILITY FUNCTIONS
 # ============================================================================
 
+# ============================================================================
+# DATA VALIDATION EXCEPTIONS
+# ============================================================================
+
+class DataValidationException(PRReviewException):
+    """Base exception for data validation errors at activity boundaries."""
+    def __init__(self, message: str):
+        super().__init__(message=message, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+
+class PatchReconstructionException(DataValidationException):
+    """Raised when patch reconstruction from serialized data fails."""
+    def __init__(self, patch_index: int, error_detail: str):
+        message = f"Failed to reconstruct patch at index {patch_index}: {error_detail}"
+        super().__init__(message=message)
+        self.patch_index = patch_index
+        self.error_detail = error_detail
+
+
+class TypeCoercionException(DataValidationException):
+    """Raised when type coercion fails during deserialization."""
+    def __init__(self, field_name: str, expected_type: str, actual_type: str, value: str = None):
+        message = f"Type coercion failed for field '{field_name}': expected {expected_type}, got {actual_type}"
+        if value:
+            message += f" (value: {value[:50]}...)" if len(str(value)) > 50 else f" (value: {value})"
+        super().__init__(message=message)
+        self.field_name = field_name
+        self.expected_type = expected_type
+        self.actual_type = actual_type
+
+
+class SeedSetReconstructionException(DataValidationException):
+    """Raised when seed set reconstruction from serialized data fails."""
+    def __init__(self, error_detail: str):
+        message = f"Failed to reconstruct seed set: {error_detail}"
+        super().__init__(message=message)
+        self.error_detail = error_detail
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
 def is_retryable_github_error(exception: Exception) -> bool:
     """
     Determine if a GitHub API error should be retried.

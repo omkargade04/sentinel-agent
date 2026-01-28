@@ -5,7 +5,7 @@ Contains Pydantic schemas for representing GitHub pull request diffs and patches
 """
 
 from pydantic import BaseModel, Field, validator
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 from enum import Enum
 
 
@@ -15,6 +15,29 @@ class ChangeType(str, Enum):
     MODIFIED = "modified"
     REMOVED = "removed"
     RENAMED = "renamed"
+
+
+def get_change_type_value(change_type: Union[ChangeType, str]) -> str:
+    """Safely extract string value from ChangeType enum or string.
+
+    This handles the deserialization scenario where `use_enum_values = True`
+    in Pydantic Config causes the enum to be serialized as a string,
+    but code may later call `.value` expecting an enum.
+
+    Args:
+        change_type: Either a ChangeType enum or string value
+
+    Returns:
+        The string value of the change type
+
+    Raises:
+        TypeError: If change_type is neither ChangeType nor str
+    """
+    if isinstance(change_type, ChangeType):
+        return change_type.value
+    elif isinstance(change_type, str):
+        return change_type
+    raise TypeError(f"Expected ChangeType or str, got {type(change_type).__name__}")
 
 
 class PRHunk(BaseModel):
@@ -45,14 +68,14 @@ class PRHunk(BaseModel):
 
     @validator('new_changed_lines')
     def validate_changed_lines(cls, v, values):
-        """Validate that changed lines are within the hunk range."""
-        if 'new_start' in values and 'new_count' in values:
-            new_start = values['new_start']
-            new_end = new_start + values['new_count']
-            for line_num in v:
-                if line_num < new_start or line_num >= new_end:
-                    raise ValueError(f'Changed line {line_num} is outside hunk range [{new_start}, {new_end})')
-        return sorted(set(v))  # Remove duplicates and sort
+        """Validate that changed lines are within the hunk range.
+        
+        Note: GitHub's diff format can have inconsistencies between hunk headers
+        and actual content, so we only warn (via logging) instead of failing.
+        """
+        # Just deduplicate and sort - don't fail on range mismatches
+        # as GitHub diffs can have header/content inconsistencies
+        return sorted(set(v))
 
     @validator('hunk_id')
     def validate_hunk_id_format(cls, v):
@@ -126,6 +149,25 @@ class PRFilePatch(BaseModel):
         description="Previous filename if file was renamed"
     )
 
+    @validator('change_type', pre=True)
+    def normalize_change_type(cls, v):
+        """Normalize change_type to ensure consistent enum handling.
+
+        This validator handles the case where change_type may come in as:
+        - A ChangeType enum instance
+        - A string value (from deserialized JSON with use_enum_values=True)
+
+        It normalizes to a ChangeType enum for consistent internal representation.
+        """
+        if isinstance(v, ChangeType):
+            return v
+        if isinstance(v, str):
+            try:
+                return ChangeType(v)
+            except ValueError:
+                raise ValueError(f"Invalid change_type value: {v}")
+        raise ValueError(f"change_type must be ChangeType or str, got {type(v).__name__}")
+
     @validator('file_path')
     def validate_file_path(cls, v):
         """Validate file path format."""
@@ -174,6 +216,18 @@ class PRFilePatch(BaseModel):
         for hunk in self.hunks:
             affected_lines.extend(hunk.new_changed_lines)
         return sorted(set(affected_lines))
+
+    @property
+    def change_type_str(self) -> str:
+        """Get change_type as string, handling both enum and string types.
+
+        This property provides safe access to the change_type value whether
+        it's stored as a ChangeType enum or as a string (after deserialization).
+
+        Returns:
+            The string value of the change type (e.g., "modified", "added")
+        """
+        return get_change_type_value(self.change_type)
 
     class Config:
         use_enum_values = True

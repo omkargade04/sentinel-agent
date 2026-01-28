@@ -42,7 +42,7 @@ class LLMFactory:
     # Default models for each provider
     DEFAULT_MODELS = {
         LLMProvider.CLAUDE: "claude-3-5-sonnet-20241022",
-        LLMProvider.GEMINI: "gemini-1.5-flash",  # Fast and cheap for dev
+        LLMProvider.GEMINI: "gemini-3-flash-preview",  # Use gemini-3-flash-preview (stable) instead of gemini-1.5-flash for v1beta compatibility
     }
     
     @classmethod
@@ -140,6 +140,7 @@ class LLMFactory:
         if provider == LLMProvider.CLAUDE:
             api_key = os.getenv("ANTHROPIC_API_KEY", "")
         else:
+            # TODO: Remove hardcoded key before committing - LOCAL DEV ONLY
             api_key = os.getenv("GEMINI_API_KEY", "")
         
         return cls.create_client(
@@ -205,6 +206,7 @@ def get_llm_client(
         if provider_enum == LLMProvider.CLAUDE:
             api_key = os.getenv("ANTHROPIC_API_KEY", "")
         else:
+            # TODO: Remove hardcoded key before committing - LOCAL DEV ONLY
             api_key = os.getenv("GEMINI_API_KEY", "")
         
         return LLMFactory.create_client(

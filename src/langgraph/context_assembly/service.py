@@ -190,6 +190,20 @@ class ContextAssemblyService:
                 f"with {metrics.kg_candidates_processed} KG candidates"
             )
 
+            # Log seed set details
+            logger.info(
+                f"[SEED_SET] Seed set details: "
+                f"seed_symbols={len(seed_set.seed_symbols)}, "
+                f"seed_files={len(seed_set.seed_files)}"
+            )
+            for i, symbol in enumerate(seed_set.seed_symbols):
+                logger.info(
+                    f"[SEED_SET] Seed symbol {i+1}: name={symbol.name}, "
+                    f"kind={symbol.kind}, file={symbol.file_path}, "
+                    f"lines={symbol.start_line}-{symbol.end_line}, "
+                    f"hunk_ids={symbol.hunk_ids}"
+                )
+
             # Serialize inputs for graph
             seed_symbols_dict = self._serialize_seed_set(seed_set)
             patches_dict = self._serialize_patches(patches)
@@ -228,12 +242,24 @@ class ContextAssemblyService:
 
             self._successful_requests += 1
 
+            # Log detailed context_items status for debugging
             logger.info(
-                f"Context assembly complete for {github_repo_name}#{pr_number}: "
-                f"{len(context_pack.context_items)} items, "
-                f"{context_pack.total_context_characters} chars, "
-                f"{metrics.total_time_ms:.0f}ms"
+                f"[CONTEXT_SERVICE] Context assembly complete for {github_repo_name}#{pr_number}: "
+                f"context_items={len(context_pack.context_items)}, "
+                f"total_chars={context_pack.total_context_characters}, "
+                f"duration={metrics.total_time_ms:.0f}ms"
             )
+
+            if len(context_pack.context_items) == 0:
+                logger.warning(
+                    f"[CONTEXT_SERVICE] WARNING: context_items is EMPTY for {github_repo_name}#{pr_number}. "
+                    f"This may indicate context assembly failed upstream."
+                )
+            else:
+                logger.info(
+                    f"[CONTEXT_SERVICE] SUCCESS: Populated {len(context_pack.context_items)} context items "
+                    f"for LLM review"
+                )
 
             return context_pack
 
@@ -252,15 +278,23 @@ class ContextAssemblyService:
 
     def _serialize_seed_set(self, seed_set: SeedSetS0) -> List[Dict[str, Any]]:
         """Serialize SeedSetS0 to list of dicts for graph."""
-        return [
-            {
+        serialized = []
+        for symbol in seed_set.seed_symbols:
+            serialized.append({
                 "name": symbol.name,
-                "type": symbol.type,
+                "kind": symbol.kind,
                 "file_path": symbol.file_path,
-                "line_number": symbol.line_number,
-            }
-            for symbol in seed_set.seed_symbols
-        ]
+                "start_line": symbol.start_line,
+                "end_line": symbol.end_line,
+                "language": symbol.language,
+                "hunk_ids": symbol.hunk_ids,
+                "qualified_name": symbol.qualified_name,
+                "signature": symbol.signature,
+                "docstring": symbol.docstring,
+                "fingerprint": symbol.fingerprint,
+            })
+        logger.info(f"[CONTEXT_SERVICE] Serialized {len(serialized)} seed symbols for graph processing")
+        return serialized
 
     def _serialize_patches(self, patches: List[PRFilePatch]) -> List[Dict[str, Any]]:
         """Serialize PRFilePatch list to dicts for graph."""
@@ -269,9 +303,8 @@ class ContextAssemblyService:
                 "file_path": patch.file_path,
                 "additions": patch.additions,
                 "deletions": patch.deletions,
-                "changes": patch.changes,
+                "change_type": patch.change_type_str,
                 "patch": patch.patch if hasattr(patch, 'patch') else "",
-                "status": patch.status,
             }
             for patch in patches
         ]

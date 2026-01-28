@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import os
 from typing import Any, Dict, Optional, List
 from pydantic import Field, validator, BaseModel
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from enum import Enum
 
 
@@ -139,6 +139,12 @@ class PRReviewLimits(BaseModel):
     max_findings_per_review: int = Field(
         default=20,
         description="Maximum findings per review",
+        ge=1,
+        le=50
+    )
+    max_findings: int = Field(
+        default=20,
+        description="Maximum findings to generate (alias for max_findings_per_review)",
         ge=1,
         le=50
     )
@@ -493,6 +499,19 @@ class ClaudeConfig(BaseModel):
 class PRReviewSettings(BaseSettings):
     """Main configuration settings for PR review pipeline."""
 
+    # Pydantic v2 settings configuration.
+    # IMPORTANT: We only load environment variables prefixed with `PR_REVIEW_`.
+    # This prevents unrelated `.env` keys (e.g., `postgres_db`, `supabase_url`, etc.)
+    # from being treated as model inputs and rejected as "extra".
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        env_nested_delimiter="__",
+        env_prefix="PR_REVIEW_",
+        extra="ignore",
+    )
+
     # ============================================================================
     # CORE CONFIGURATION
     # ============================================================================
@@ -548,7 +567,8 @@ class PRReviewSettings(BaseSettings):
     github_app_id: int = Field(
         default=0,
         description="GitHub App ID",
-        gt=0
+        # Allow 0 in development/testing; production is enforced via validator below.
+        ge=0,
     )
     github_private_key: str = Field(
         default="",
@@ -783,13 +803,6 @@ class PRReviewSettings(BaseSettings):
             total_changes > self.limits.max_changed_files * 50  # Average 50 changes per file
         )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        # Map environment variables to nested config
-        env_nested_delimiter = "__"
-
 
 # ============================================================================
 # CONFIGURATION FACTORY
@@ -804,7 +817,7 @@ def get_pr_review_settings() -> PRReviewSettings:
     - PR_REVIEW_LLM__MODEL=gpt-4-turbo
     - PR_REVIEW_GITHUB_API__RETRY_ATTEMPTS=5
     """
-    return PRReviewSettings(_env_prefix="PR_REVIEW_")
+    return PRReviewSettings()
 
 
 def create_development_config() -> PRReviewSettings:

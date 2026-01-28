@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from src.langgraph.context_assembly.base_node import BaseContextAssemblyNode
-from src.langgraph.context_assembly.langgraph_workflow import WorkflowState
+from src.langgraph.context_assembly.types import WorkflowState
 from src.models.schemas.pr_review.pr_patch import PRFilePatch
 
 
@@ -114,6 +114,20 @@ class SnippetExtractorNode(BaseContextAssemblyNode):
             f"{extraction_stats['binary_files_skipped']} binary files skipped"
         )
 
+        # If no items extracted and seed symbols exist, extract seed symbol code as fallback
+        seed_set = state.get("seed_set")
+        if len(extracted_items) == 0 and seed_set and len(seed_set.seed_symbols) > 0:
+            self.logger.warning(
+                f"[SNIPPET_EXTRACTOR] No items extracted from {len(enriched_candidates)} candidates. "
+                f"Falling back to extract seed symbol code directly."
+            )
+            extracted_items = await self._extract_seed_symbol_code(seed_set, clone_path, limits)
+            extraction_stats["snippets_extracted"] = len(extracted_items)
+            extraction_stats["fallback_to_seed_symbols"] = True
+            self.logger.info(
+                f"[SNIPPET_EXTRACTOR] Extracted {len(extracted_items)} items from seed symbols as fallback"
+            )
+
         return {
             "extracted_items": extracted_items,
             "extraction_stats": extraction_stats,
@@ -223,6 +237,102 @@ class SnippetExtractorNode(BaseContextAssemblyNode):
             "end_line": end_line,
             "size": len(mock_snippet)
         }
+
+    async def _extract_seed_symbol_code(
+        self,
+        seed_set,
+        clone_path: str,
+        limits
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract code snippets directly from seed symbols as fallback.
+        
+        Args:
+            seed_set: SeedSetS0 with seed symbols
+            clone_path: Path to cloned repository
+            limits: Context pack limits
+            
+        Returns:
+            List of extracted items with code snippets
+        """
+        extracted_items = []
+        
+        for seed_symbol in seed_set.seed_symbols:
+            try:
+                self.logger.info(
+                    f"[SNIPPET_EXTRACTOR] Extracting seed symbol code: "
+                    f"{seed_symbol.name} from {seed_symbol.file_path} "
+                    f"(lines {seed_symbol.start_line}-{seed_symbol.end_line})"
+                )
+                
+                # Extract code snippet for seed symbol
+                extraction_result = self.file_extractor.extract_snippet(
+                    clone_path=clone_path,
+                    file_path=seed_symbol.file_path,
+                    start_line=seed_symbol.start_line,
+                    end_line=seed_symbol.end_line,
+                    max_lines=limits.max_lines_per_snippet
+                )
+                
+                if extraction_result.extraction_success:
+                    # Apply limits
+                    bounded_snippet = self._apply_snippet_limits(
+                        {
+                            "content": extraction_result.content,
+                            "file_path": extraction_result.file_path,
+                            "start_line": extraction_result.start_line,
+                            "end_line": extraction_result.end_line,
+                            "size": len(extraction_result.content)
+                        },
+                        limits.max_lines_per_snippet,
+                        limits.max_chars_per_item
+                    )
+                    
+                    # Create context item from seed symbol
+                    extracted_item = {
+                        "item_id": f"seed_{seed_symbol.name}_{seed_symbol.file_path}",
+                        "symbol_name": seed_symbol.name,
+                        "symbol_type": seed_symbol.kind,
+                        "file_path": seed_symbol.file_path,
+                        "code_snippet": bounded_snippet["content"],
+                        "start_line": seed_symbol.start_line,
+                        "end_line": seed_symbol.end_line,
+                        "is_seed_symbol": True,
+                        "priority": 1,  # Highest priority for seed symbols
+                        "relevance_score": 1.0,  # Maximum relevance
+                        "source": "seed_symbol_fallback",
+                        "original_size": extraction_result.file_size_bytes,
+                        "truncated": bounded_snippet["was_truncated"] or extraction_result.is_truncated,
+                        "extraction_metadata": {
+                            "extracted_at": datetime.utcnow().isoformat(),
+                            "source": "seed_symbol_direct_extraction",
+                            "line_count": extraction_result.actual_lines,
+                            "encoding": extraction_result.encoding,
+                            "actual_start_line": extraction_result.start_line,
+                            "actual_end_line": extraction_result.end_line
+                        }
+                    }
+                    
+                    extracted_items.append(extracted_item)
+                    self.logger.info(
+                        f"[SNIPPET_EXTRACTOR] Successfully extracted seed symbol code: "
+                        f"{seed_symbol.name} ({len(bounded_snippet['content'])} chars)"
+                    )
+                else:
+                    error_msg = extraction_result.extraction_error or "Unknown error"
+                    self.logger.warning(
+                        f"[SNIPPET_EXTRACTOR] Failed to extract seed symbol code for "
+                        f"{seed_symbol.name}: {error_msg}"
+                    )
+                    
+            except Exception as e:
+                self.logger.error(
+                    f"[SNIPPET_EXTRACTOR] Error extracting seed symbol {seed_symbol.name}: {e}",
+                    exc_info=True
+                )
+                continue
+        
+        return extracted_items
 
     def _apply_snippet_limits(self, snippet_data: Dict, max_lines: int, max_chars: int) -> Dict:
         """Apply size limits to extracted snippet."""

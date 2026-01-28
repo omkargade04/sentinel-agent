@@ -86,9 +86,16 @@ class ContextAssemblyGraph:
                 seed_symbols=[
                     SeedSymbol(
                         name=symbol.get('name', ''),
-                        type=symbol.get('type', 'unknown'),
+                        kind=symbol.get('kind', symbol.get('type', 'unknown')),
                         file_path=symbol.get('file_path', ''),
-                        line_number=symbol.get('line_number', 0)
+                        start_line=symbol.get('start_line', symbol.get('line_number', 1)),
+                        end_line=symbol.get('end_line', symbol.get('start_line', symbol.get('line_number', 1))),
+                        language=symbol.get('language', 'unknown'),
+                        hunk_ids=symbol.get('hunk_ids', []),
+                        qualified_name=symbol.get('qualified_name'),
+                        signature=symbol.get('signature'),
+                        docstring=symbol.get('docstring'),
+                        fingerprint=symbol.get('fingerprint'),
                     ) for symbol in seed_symbols
                 ],
                 seed_files=[]
@@ -99,9 +106,9 @@ class ContextAssemblyGraph:
                     file_path=patch.get('file_path', ''),
                     additions=patch.get('additions', 0),
                     deletions=patch.get('deletions', 0),
-                    changes=patch.get('changes', 0),
+                    change_type=patch.get('change_type', 'modified'),
                     patch=patch.get('patch', ''),
-                    status=patch.get('status', 'modified')
+                    hunks=patch.get('hunks', []),
                 ) for patch in pr_patches
             ]
 

@@ -128,11 +128,12 @@ class SeedSetBuilder:
             stats.files_processed += 1
             
             # Handle deleted files
-            if patch.change_type == ChangeType.REMOVED:
+            # Use change_type_str to handle both enum and string values safely
+            if patch.change_type_str == ChangeType.REMOVED.value:
                 seed_files.append(SeedFile(
                     file_path=patch.file_path,
                     reason=SeedFileReason.FILE_DELETED,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=self._detect_language(patch.file_path),
                 ))
                 stats.files_skipped += 1
@@ -143,7 +144,7 @@ class SeedSetBuilder:
                 seed_files.append(SeedFile(
                     file_path=patch.file_path,
                     reason=SeedFileReason.BINARY_FILE,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                 ))
                 stats.files_skipped += 1
                 continue
@@ -153,7 +154,7 @@ class SeedSetBuilder:
                 seed_files.append(SeedFile(
                     file_path=patch.file_path,
                     reason=SeedFileReason.PATCH_MISSING,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=self._detect_language(patch.file_path),
                 ))
                 stats.files_skipped += 1
@@ -212,7 +213,7 @@ class SeedSetBuilder:
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.PATCH_MISSING,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     error_message="File not found in clone",
                 )
             )
@@ -227,7 +228,7 @@ class SeedSetBuilder:
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.PARSE_ERROR,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     error_message=f"File too large: {file_size} bytes",
                 )
             )
@@ -241,7 +242,7 @@ class SeedSetBuilder:
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.NO_SYMBOL_MATCH,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=language,
                     line_count=patch.additions + patch.deletions,
                 )
@@ -258,7 +259,7 @@ class SeedSetBuilder:
                     seed_file=SeedFile(
                         file_path=file_path,
                         reason=SeedFileReason.NO_SYMBOL_MATCH,
-                        change_type=patch.change_type.value,
+                        change_type=patch.change_type_str,
                         language=language,
                     )
                 )
@@ -291,7 +292,7 @@ class SeedSetBuilder:
                     seed_file=SeedFile(
                         file_path=file_path,
                         reason=SeedFileReason.NO_SYMBOL_MATCH,
-                        change_type=patch.change_type.value,
+                        change_type=patch.change_type_str,
                         language=language,
                         line_count=patch.additions + patch.deletions,
                     )
@@ -315,7 +316,7 @@ class SeedSetBuilder:
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.NO_SYMBOL_MATCH,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=language,
                 )
             )
@@ -327,20 +328,30 @@ class SeedSetBuilder:
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.PARSE_ERROR,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=language,
                     error_message=str(e),
                 )
             )
             
         except Exception as e:
-            self.logger.error(f"Unexpected error processing {file_path}: {e}")
+            # Enhanced error logging with type information for debugging
+            self.logger.error(
+                f"Unexpected error processing {file_path}: {e}",
+                extra={
+                    "change_type": str(patch.change_type),
+                    "change_type_type": type(patch.change_type).__name__,
+                    "error_type": type(e).__name__,
+                    "file_path": file_path,
+                    "language": language,
+                }
+            )
             return FileProcessResult(
                 error_type="parse_error",
                 seed_file=SeedFile(
                     file_path=file_path,
                     reason=SeedFileReason.PARSE_ERROR,
-                    change_type=patch.change_type.value,
+                    change_type=patch.change_type_str,
                     language=language,
                     error_message=str(e),
                 )

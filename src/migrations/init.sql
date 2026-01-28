@@ -117,7 +117,11 @@ CREATE TABLE IF NOT EXISTS review_runs (
     started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP,
     status VARCHAR DEFAULT 'pending',
-    error_message TEXT
+    error_message TEXT,
+    -- PR review metadata persistence columns
+    temporal_workflow_id VARCHAR(255),
+    github_review_id BIGINT,
+    published BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS review_findings (
@@ -129,7 +133,10 @@ CREATE TABLE IF NOT EXISTS review_findings (
     severity VARCHAR NOT NULL, -- LOW, MEDIUM, HIGH, CRITICAL
     message TEXT NOT NULL,
     suggestion TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- PR review metadata persistence columns
+    hunk_id VARCHAR(100),
+    github_comment_id BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS job_queue (

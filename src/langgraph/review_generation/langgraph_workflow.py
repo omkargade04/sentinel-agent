@@ -152,11 +152,12 @@ class ReviewGenerationWorkflow:
         self.logger = logging.getLogger(f"{__name__}.workflow")
 
         # Initialize all nodes
+        # NOTE: LLMGeneratorNode has llm_client as first param, so must use keyword arg
         self.nodes = {
             "context_analyzer": ContextAnalyzerNode(circuit_breaker),
             "diff_processor": DiffProcessorNode(circuit_breaker),
             "prompt_builder": PromptBuilderNode(circuit_breaker),
-            "llm_generator": LLMGeneratorNode(circuit_breaker),
+            "llm_generator": LLMGeneratorNode(circuit_breaker=circuit_breaker),
             "finding_anchorer": FindingAnchorerNode(circuit_breaker),
             "quality_validator": QualityValidatorNode(circuit_breaker)
         }
