@@ -31,9 +31,19 @@ async def init_database(driver: AsyncDriver, database: str = "neo4j") -> None:
     (IF NOT EXISTS).
 
     Creates:
+        Constraints:
         - Uniqueness constraint on (:KGNode {repo_id, node_id})
+        
+        Base Indexes:
         - Index on (:KGNode {repo_id}) for filtering by repository
         - Index on (:KGNode {last_indexed_at}) for cleanup queries
+        
+        Phase 4 Read-Query Indexes (PR Review):
+        - Composite index on (:SymbolNode {repo_id, relative_path, name}) for symbol lookups
+        - Index on (:SymbolNode {repo_id, qualified_name}) for qualified name lookups
+        - Index on (:SymbolNode {repo_id, fingerprint}) for fingerprint-based matching
+        - Index on (:FileNode {repo_id, relative_path}) for file path lookups
+        - Index on (:TextNode {relative_path}) for path prefix searches
 
     Args:
         driver: Neo4j AsyncDriver instance
@@ -45,6 +55,7 @@ async def init_database(driver: AsyncDriver, database: str = "neo4j") -> None:
     logger.info("Initializing Neo4j database schema for KGNode")
 
     async with driver.session(database=database) as session:
+        
         # Create uniqueness constraint on repo_id + node_id combination
         # This ensures each node is unique within a repository
         logger.debug("Creating uniqueness constraint on KGNode (repo_id, node_id)")
@@ -55,7 +66,7 @@ async def init_database(driver: AsyncDriver, database: str = "neo4j") -> None:
             REQUIRE (n.repo_id, n.node_id) IS UNIQUE
             """
         )
-
+        
         # Create index on repo_id for efficient repository-scoped queries
         logger.debug("Creating index on KGNode (repo_id)")
         await session.run(
@@ -73,6 +84,73 @@ async def init_database(driver: AsyncDriver, database: str = "neo4j") -> None:
             CREATE INDEX kg_node_last_indexed_at IF NOT EXISTS
             FOR (n:KGNode)
             ON (n.last_indexed_at)
+            """
+        )
+
+        # Composite index on SymbolNode for find_symbol queries
+        # Supports: MATCH (s:SymbolNode {repo_id: $repo_id, relative_path: $path, name: $name})
+        logger.debug("Creating composite index on SymbolNode (repo_id, relative_path, name)")
+        await session.run(
+            """
+            CREATE INDEX symbol_node_lookup IF NOT EXISTS
+            FOR (n:SymbolNode)
+            ON (n.repo_id, n.relative_path, n.name)
+            """
+        )
+
+        # Index on SymbolNode qualified_name for qualified name lookups
+        # Supports: WHERE s.qualified_name = $qualified_name
+        logger.debug("Creating index on SymbolNode (repo_id, qualified_name)")
+        await session.run(
+            """
+            CREATE INDEX symbol_node_qualified_name IF NOT EXISTS
+            FOR (n:SymbolNode)
+            ON (n.repo_id, n.qualified_name)
+            """
+        )
+
+        # Index on SymbolNode fingerprint for content-based matching
+        # Supports: WHERE s.fingerprint = $fingerprint
+        logger.debug("Creating index on SymbolNode (repo_id, fingerprint)")
+        await session.run(
+            """
+            CREATE INDEX symbol_node_fingerprint IF NOT EXISTS
+            FOR (n:SymbolNode)
+            ON (n.repo_id, n.fingerprint)
+            """
+        )
+
+        # Index on FileNode relative_path for file lookups
+        # Supports: MATCH (f:FileNode {repo_id: $repo_id, relative_path: $path})
+        logger.debug("Creating index on FileNode (repo_id, relative_path)")
+        await session.run(
+            """
+            CREATE INDEX file_node_path IF NOT EXISTS
+            FOR (n:FileNode)
+            ON (n.repo_id, n.relative_path)
+            """
+        )
+
+        # Index on TextNode relative_path for path prefix searches
+        # Supports: WHERE t.relative_path STARTS WITH $prefix
+        # Note: Neo4j can use single-property indexes for STARTS WITH
+        logger.debug("Creating index on TextNode (repo_id, relative_path)")
+        await session.run(
+            """
+            CREATE INDEX text_node_path IF NOT EXISTS
+            FOR (n:TextNode)
+            ON (n.repo_id, n.relative_path)
+            """
+        )
+
+        # Index on SymbolNode kind for filtering by symbol type
+        # Supports: WHERE s.kind = $kind
+        logger.debug("Creating index on SymbolNode (repo_id, kind)")
+        await session.run(
+            """
+            CREATE INDEX symbol_node_kind IF NOT EXISTS
+            FOR (n:SymbolNode)
+            ON (n.repo_id, n.kind)
             """
         )
 

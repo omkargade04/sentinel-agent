@@ -18,6 +18,8 @@ services:
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=password
       - NEO4J_DATABASE=neo4j
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LLM_PROVIDER=${LLM_PROVIDER}
     networks:
       - app-network
 
@@ -59,7 +61,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
-      
+
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ngrok

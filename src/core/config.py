@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
     NEO4J_DATABASE: str = os.getenv("NEO4J_DATABASE", "neo4j")
     
+    # LLM Configuration
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "gemini")  # "gemini" for dev, "claude" for prod
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "")  # Optional: override default model
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "1234567890")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "1234567890")
+    
     postgres_db: str = "postgres"
     postgres_user: str = "postgres" 
     posgtres_password: str = "postgres"
