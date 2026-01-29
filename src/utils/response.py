@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 
 class IndexRepoResponseItem(BaseModel):
@@ -8,6 +8,7 @@ class IndexRepoResponseItem(BaseModel):
     run_id: str
     message: str
     repo_name: str
+    events_url: Optional[str] = None
 
 
 class IndexRepoResponse(BaseModel):

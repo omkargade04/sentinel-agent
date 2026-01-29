@@ -13,3 +13,4 @@ class User(Base):
     updated_at = Column(TIMESTAMP, nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
     github_installations = relationship("GithubInstallation", back_populates="user")
+    workflow_events = relationship("WorkflowRunEvent", back_populates="user")

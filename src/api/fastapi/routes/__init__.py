@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from . import health, user, github, repository, indexing
+from . import health, user, github, repository, indexing, workflow_events
 
 def register_routes(app: FastAPI):
     app.include_router(health.router)
@@ -7,3 +7,4 @@ def register_routes(app: FastAPI):
     app.include_router(github.router)
     app.include_router(repository.router)
     app.include_router(indexing.router)
+    app.include_router(workflow_events.router)

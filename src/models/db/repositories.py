@@ -24,3 +24,4 @@ class Repository(Base):
     symbols = relationship("Symbol", back_populates="repository")
     automation_workflows = relationship("AutomationWorkflow", back_populates="repository")
     pull_requests = relationship("PullRequest", back_populates="repository")
+    workflow_events = relationship("WorkflowRunEvent", back_populates="repository")

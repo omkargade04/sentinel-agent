@@ -18,21 +18,22 @@ async def index_repo(
 ):
     """
     Trigger repository indexing workflows for multiple repositories.
-    
+
     This endpoint:
     1. Validates user has access to the installation
     2. Starts a Temporal workflow for each repository in the list
-    3. Returns workflow handles for tracking all started workflows
+    3. Returns workflow handles and SSE event URLs for tracking all started workflows
     """
-    
+
     try:
         repo_list = repo_request.repositories
         responses = []
-        
+
         for repo in repo_list:
             workflow_id = f"repo-index-{repo.github_repo_id}-{repo.default_branch}"
             input = {
                 "installation_id": repo_request.installation_id,
+                "user_id": str(current_user.user_id),
                 "repository": repo.model_dump(mode="json"),
             }
             handle = await temporal_client.start_workflow(
@@ -46,10 +47,11 @@ async def index_repo(
                     workflow_id=handle.id,
                     run_id=str(handle.first_execution_run_id or ""),
                     message=f"Indexing started for repository {repo.github_repo_name}",
-                    repo_name=repo.github_repo_name
+                    repo_name=repo.github_repo_name,
+                    events_url=f"/api/workflows/{handle.id}/events"
                 )
             )
-        
+
         return IndexRepoResponse(
             repositories=responses,
             total_count=len(responses)

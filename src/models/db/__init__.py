@@ -14,6 +14,7 @@ from .indexed_files import IndexedFile
 from .symbols import Symbol
 from .symbol_embeddings import SymbolEmbedding
 from .symbol_edges import SymbolEdge
+from .workflow_run_events import WorkflowRunEvent
 
 # Export all models
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     'Symbol',
     'SymbolEmbedding',
     'SymbolEdge',
+    'WorkflowRunEvent',
 ]

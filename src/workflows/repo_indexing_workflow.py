@@ -32,10 +32,11 @@ class RepoIndexingWorkflow:
     async def run(self, repo_request: dict):
         """
         Orchestrate repository indexing.
-        
+
         Args:
             repo_request: {
                 "installation_id": int,
+                "user_id": str (optional - added by API endpoint),
                 "repository": {
                     "github_repo_name": str,
                     "github_repo_id": int,
@@ -46,6 +47,22 @@ class RepoIndexingWorkflow:
             }
         """
         logger.info(f"Starting repository indexing workflow for {repo_request['repository']['github_repo_name']}")
+
+        # Build event context from workflow info for activity event emission
+        event_context = {
+            "workflow_id": workflow.info().workflow_id,
+            "workflow_run_id": str(workflow.info().run_id),
+            "workflow_type": "repo_indexing",
+            "user_id": repo_request.get("user_id"),
+            "repo_id": repo_request["repository"]["repo_id"],
+            "installation_id": repo_request["installation_id"],
+        }
+
+        # Add event context to repo_request for all activities
+        repo_request_with_context = {
+            **repo_request,
+            "event_context": event_context,
+        }
         
         # Retry policy
         retry_policy = RetryPolicy(
@@ -61,7 +78,7 @@ class RepoIndexingWorkflow:
         # Step 0: Check if indexing is needed (skip if SHA unchanged)
         precheck_result = await workflow.execute_activity(
             check_indexing_needed_activity,
-            repo_request,
+            repo_request_with_context,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=retry_policy
         )
@@ -91,7 +108,7 @@ class RepoIndexingWorkflow:
            # Uses no_retry for auth/404 errors (those are permanent)
             clone_result = await workflow.execute_activity(
                 clone_repo_activity,
-                repo_request,
+                repo_request_with_context,
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy
             )
@@ -106,6 +123,7 @@ class RepoIndexingWorkflow:
                 "github_repo_id": repo_request['repository']['github_repo_id'],
                 "repo_id": repo_request['repository']['repo_id'],
                 "commit_sha": clone_result['commit_sha'],
+                "event_context": event_context,
             }
             parse_result = await workflow.execute_activity(
                 parse_repo_activity,
@@ -125,6 +143,7 @@ class RepoIndexingWorkflow:
                 "github_repo_name": repo_request["repository"]["github_repo_name"],
                 "graph_result": parse_result["graph_result"],
                 "commit_sha": clone_result["commit_sha"],
+                "event_context": event_context,
             }
             persist_kg_result = await workflow.execute_activity(
                 persist_kg_activity,
@@ -143,6 +162,7 @@ class RepoIndexingWorkflow:
                 "repo_id": repo_request["repository"]["repo_id"],
                 "github_repo_id": repo_request["repository"]["github_repo_id"],
                 "commit_sha": clone_result["commit_sha"],
+                "event_context": event_context,
             }
             await workflow.execute_activity(
                 persist_metadata_activity,
@@ -156,6 +176,7 @@ class RepoIndexingWorkflow:
             cleanup_kg_input = {
                 "repo_id": repo_request["repository"]["repo_id"],
                 "ttl_days": 7,  # Remove nodes not refreshed in last 7 days
+                "event_context": event_context,
             }
             cleanup_result = await workflow.execute_activity(
                 cleanup_stale_kg_nodes_activity,
