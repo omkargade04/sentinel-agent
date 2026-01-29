@@ -1,30 +1,12 @@
-# Sentinel - AI Code Reviewer Agent
+# CLAUDE.md
 
-An AI-powered code review system that automatically analyzes pull requests, detects bugs, and provides intelligent feedback using Temporal workflows and LangGraph for multi-step reasoning.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Documentation for AI Agents
+## Overview
 
-**Local agents (Claude Code, Cursor, etc.)** should read documentation directly from the file system:
+Sentinel is an AI-powered code review system that analyzes pull requests, detects bugs, and provides intelligent feedback using Temporal workflows and LangGraph for multi-step reasoning.
 
-- `plans/` - Architecture, implementation phases, tech stack, API contracts
-  - `plans/architecture.md` - Complete technical architecture guide
-  - `plans/implementation-phases.md` - Implementation roadmap
-  - `plans/tech-stack.md` - Technology stack details
-  - `plans/api_contracts.md` - API contract specifications
-  - `plans/db_schema.md` - Database schema design
-  - `plans/TRD.md` - Technical Requirements Document
-- `src/*/README.md` - Module-specific documentation
-  - `src/activities/README.md` - Temporal activity patterns
-  - `src/workflows/README.md` - Workflow orchestration patterns
-  - `src/workers/README.md` - Worker process documentation
-  - `src/langgraph/context_assembly/README.md` - Context assembly system
-  - `src/services/*/README.md` - Service-specific documentation
-
-**Do NOT fetch from hosted URLs** - use local file access for speed and reliability.
-
-## Quick Reference
-
-### Development Commands
+## Development Commands
 
 ```bash
 # Install dependencies

@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "context_assembly": "./src/langgraph/context_assembly/studio_graph.py:app",
+    "review_generation": "./src/langgraph/review_generation/studio_graph.py:app"
+  },
+  "env": ".env"
+}

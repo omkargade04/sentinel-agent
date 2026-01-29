@@ -1,6 +1,14 @@
 .env
 .venv/
+.vscode
 .cursor
+.claude
+.gemini
+.langgraph_api
+.opencode
+.agents
+.github/skills
+/plans
 /results
 /prometheus_repo
 __pycache__/
